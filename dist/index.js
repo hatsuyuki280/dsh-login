@@ -578,137 +578,220 @@ function buildClearCookieHeader() {
 }
 
 // src/api-filter.ts
+var WIRE_SURFACE_DSH_VERSION = "0.2.1-rc.2";
 var USER_ALLOWED = /* @__PURE__ */ new Set([
-  "session.list",
-  "session.search",
-  "session.create",
-  "session.history",
-  "session.models",
-  "session.selectModel",
-  "session.rename",
-  "session.fork",
-  "session.prompt",
+  // ── session: the conversation surface ─────────────────────────────────────
+  // `page` replaced the old `session.history`; `modelCatalog` replaced
+  // `session.models`; `initializeDefaultModel`/`selectModel` are the model
+  // picker; `canOpenWorkspacePath`/`openWorkspacePath`/
+  // `workspacePathApplications` back the "open folder" flow; `control` is the
+  // per-session steering stream; `projections` is the timeline projection.
   "session.attachment",
-  "session.updateQueue",
   "session.cancel",
-  "subagent.list",
-  "subagent.history",
-  "subagent.prompt",
-  "subagent.interrupt",
-  "host.describe",
-  "workspace.list",
+  "session.canOpenWorkspacePath",
+  "session.control",
+  "session.create",
+  "session.follow",
+  "session.fork",
+  "session.initializeDefaultModel",
+  "session.list",
+  "session.modelCatalog",
+  "session.openWorkspacePath",
+  "session.page",
+  "session.projections",
+  "session.prompt",
+  "session.rename",
+  "session.search",
+  "session.selectModel",
+  "session.updateQueue",
+  "session.workspacePathApplications",
+  // ── workspace: the sidebar tree (read + the user's own mutations) ─────────
+  // `follow` is the tree snapshot stream (the old `workspace.list`); every
+  // mutation carries ids the guard ownership-checks.
+  "workspace.archiveSession",
   "workspace.create",
-  "workspace.rename",
   "workspace.delete",
+  "workspace.follow",
   "workspace.insertBefore",
   "workspace.insertSessionBefore",
-  "workspace.archiveSession",
-  // DSH 0.1.6: restore one archived Session (pairs with archiveSession above).
-  "workspace.unarchiveSession",
-  // DSH 0.1.7: sidebar session pinning (pinned sessions ride the workspace
-  // tree like rename/archive; both carry the workspace/session ids the guard's
-  // GUARDED_ID_FIELDS already ownership-check).
   "workspace.pinSession",
+  "workspace.rename",
+  "workspace.unarchiveSession",
   "workspace.unpinSession",
-  // DSH 0.1.7: the job controller (`dsh-api-job-controller`, typert namespace
-  // `job`; SessionJob moved here out of `session`). `list`/`follow` are
-  // reconnect-safe streams and `kill` is the human stop button — the same
-  // trust boundary as `session.prompt`. Every request carries `sessionId`
-  // (JobFollowRequest omits it only for unowned jobs, which any caller may
-  // observe), ownership-checked through the guard's GUARDED_ID_FIELDS. Note:
-  // `jobId` must NOT be added to the guarded fields — job ids are not in the
-  // ownership sidecar and every id collected must resolve owned, which would
-  // deny legitimate kills.
-  "job.list",
+  // ── goals: per-session goal tracking (renamed from `goal.*`) ──────────────
+  "goals.clear",
+  "goals.complete",
+  "goals.create",
+  "goals.edit",
+  "goals.get",
+  "goals.pause",
+  "goals.resume",
+  // ── subagents: the caller's own agent subtree ─────────────────────────────
+  "subagents.interruptByParent",
+  "subagents.prompt",
+  // ── llm: the provider/model catalogs the picker renders ───────────────────
+  // (`llm.providers`/`llm.models` never existed on this wire line; these are
+  // the real names — discovery is what settings→models failed on in issue #4.)
+  "llm.discoverModels",
+  "llm.listConfigurableProviders",
+  "llm.listProviders",
+  // ── skills: the slash-command skill list (`skills.list`) ──────────────────
+  "skills.list",
+  // ── job: the background job controller ────────────────────────────────────
   "job.follow",
   "job.kill",
-  // DSH 0.1.6: the sidebar terminal (`dsh-api-terminal-controller`, typert
-  // namespace `terminal`). Every method is session-agent-scoped by the Gateway
-  // (the `agent` argument is supplied by the Gateway itself, never by the
-  // browser), so it stays inside the caller's own agent subtree — the same
-  // trust boundary as `session.prompt` (an agent can already run shell for the
-  // user). `terminal.list` addresses a session explicitly and is ownership-
-  // checked through the guard's GUARDED_ID_FIELDS (`sessionId`).
-  "terminal.environment",
-  "terminal.shells",
-  "terminal.list",
-  "terminal.create",
-  // DSH 0.2.1-alpha.3: `terminal.follow` became the bidirectional
-  // `terminal.attach` stream — uplink write/resize now ride the attach stream
-  // itself as sequenced commands, so the standalone `terminal.write` and
-  // `terminal.resize` methods no longer exist on the wire.
+  "job.list",
+  // ── terminal: the sidebar terminal ────────────────────────────────────────
+  // Every method is session-agent-scoped by the Gateway (the `agent` argument
+  // is supplied server-side, never by the browser), so it stays inside the
+  // caller's own agent subtree — the same trust boundary as `session.prompt`
+  // (an agent can already run shell for the user). `list`/`retain` address a
+  // session explicitly and are ownership-checked. NOTE: since 0.1.6-alpha.2
+  // user terminals run with the execution environment's system-user
+  // permissions (no Agent sandbox); a stricter deployment subtracts these
+  // (docs/adapt-dsh-0.1.6-alpha.2.md §4).
   "terminal.attach",
-  "terminal.rename",
   "terminal.close",
-  // DSH 0.1.6-alpha.2: terminal retention across reconnects. `terminal.retain`
-  // addresses a session explicitly (`sessionId`) and is ownership-checked
-  // through GUARDED_ID_FIELDS like terminal.list. NOTE: since alpha.2 user
-  // terminals run with the execution environment's system-user permissions
-  // (no Agent sandbox), a deployment wanting stricter posture subtracts the
-  // terminal.* entries from this set before wrapping (see docs/adapt-dsh-0.1.6-alpha.2.md).
+  "terminal.create",
+  "terminal.environment",
+  "terminal.list",
+  "terminal.rename",
   "terminal.retain",
-  // DSH 0.2.1-alpha.3: the native remote-access client mounts on every page
-  // and opens its `remoteAccess/follow` snapshot stream. The gateway always
-  // allows this method and the answer only ever contains the caller's own
-  // grants (an owner principal gets the owner baseline), so admitting it
-  // here just keeps that mount silent instead of surfacing a denied-stream
-  // error on every page load.
+  "terminal.shells",
+  // ── remoteAccess: the client's own grant snapshot stream ──────────────────
+  // The gateway always allows it and it answers with only the caller's own
+  // grants, so admitting it keeps the mount silent on every page load.
   "remoteAccess.follow",
-  // DSH 0.1.6-alpha.2: the right Sidebar's document preview. The read surface
-  // of `workspaceFiles` + the Office→PDF converter (`officeToPdf`) are what
-  // every user's document/Office preview tab calls; each method's first wire
-  // argument is the scoped session identity (`workspaceFileScopeId`), resolved
-  // by the Gateway's workspaceFileScope lookup and ownership-checked through
-  // GUARDED_ID_FIELDS. Read-only: no write/convert-bytes method is exposed to
-  // the wire surface listed here.
-  "workspaceFiles.read",
-  "workspaceFiles.readAll",
-  "workspaceFiles.readBytes",
-  "workspaceFiles.readRelated",
-  "workspaceFiles.stat",
-  "workspaceFiles.list",
+  // ── document preview: read-only Files surface + Office→PDF ────────────────
+  // Each call carries the scoped session identity (workspaceFileScopeId),
+  // resolved and ownership-checked by the Gateway. No write method is exposed.
   "workspaceFiles.changes",
-  "officeToPdf.render",
+  "workspaceFiles.list",
+  "workspaceFiles.read",
+  "workspaceFiles.readBytes",
+  "workspaceFiles.stat",
   "officeToPdf.generation",
-  "skill.list",
-  "llm.providers",
-  "llm.models",
-  "goal.create",
-  "goal.edit",
-  "goal.pause",
-  "goal.resume",
-  "goal.complete",
-  "goal.clear",
-  "respond"
+  "officeToPdf.render",
+  // ── speech: per-user dictation preferences + transcription ────────────────
+  // `configure` persists the caller's own recognizer settings.
+  "speech.cancelPreparation",
+  "speech.catalog",
+  "speech.configure",
+  "speech.follow",
+  "speech.prepare",
+  "speech.transcribe",
+  // ── schedule: the user's own scheduled runs ───────────────────────────────
+  "schedule.catalog",
+  "schedule.delete",
+  "schedule.history",
+  "schedule.list",
+  "schedule.update",
+  // ── composer + pickers the GUI calls on ordinary-user pages ───────────────
+  // `directoryPicker.*` is the "add workspace" directory chooser
+  // (`ui-workspace/src/client/navigation.ts`), i.e. issue #4 symptom 1. It is
+  // admitted because the capability class is already open to ordinary users
+  // (`terminal.*` runs shell as the same system user), and because the
+  // dangerous half — registering the picked directory — stays guarded:
+  // `workspace.create` is confined to the caller's sandbox by the workspace
+  // mutation guard, so a pick outside it is rejected at that call, not here.
+  "commands.execute",
+  "commands.list",
+  "directoryPicker.createDirectory",
+  "directoryPicker.list",
+  "directoryPicker.pick",
+  // ── attachments, references, feedback, telemetry ──────────────────────────
+  "fileReferences.list",
+  "fileUploads.upload",
+  "messageFeedback.delete",
+  "messageFeedback.list",
+  "messageFeedback.put",
+  "sessionFeedback.record",
+  "sessionReferenceResolver.candidates",
+  "permissionPresets.catalog",
+  "productAnalytics.enabled",
+  "productAnalytics.report",
+  "productAnalytics.watchPolicy",
+  // ── chain-of-thought translation (a per-user reading aid) ─────────────────
+  "cotTranslation.limits",
+  "cotTranslation.translate",
+  // ── the agent's ask-the-user dialog ───────────────────────────────────────
+  "userQuestions.answer",
+  "userQuestions.attachWait"
 ]);
+var ADMIN_ONLY_METHODS = /* @__PURE__ */ new Set([
+  "account.ackBonusNotified",
+  "account.cancelSignIn",
+  "account.getBalance",
+  "account.getProfile",
+  "account.getState",
+  "account.getUnnotifiedBonuses",
+  "account.hasRunningAccountTasks",
+  "account.signOut",
+  "account.startSignIn",
+  "account.watch",
+  "account.watchExpiry",
+  "agentPresets.list",
+  "agentPresets.read",
+  "agentPresets.select",
+  "claudeCodeMods.pressBand",
+  "claudeCodeMods.watchBand",
+  "credentials.describe",
+  "credentials.set",
+  "credentials.unset",
+  "dynamicCordisRunner.getClientCode",
+  "dynamicCordisRunner.inventory",
+  "dynamicCordisRunner.invoke",
+  "dynamicCordisRunner.reportClientGuardFailure",
+  "dynamicCordisRunner.reportRenderFailure",
+  "dynamicCordisRunner.resolveInspectQuery",
+  "dynamicCordisRunner.resolveRequestRun",
+  "dynamicCordisRunner.runHostHalf",
+  "dynamicCordisRunner.settleUserRun",
+  "dynamicCordisRunner.stopFromPanel",
+  "dynamicCordisRunner.syncInspectManifest",
+  "dynamicCordisRunner.undefineFromPanel",
+  "pluginInventory.list",
+  "pluginManager.cancelInstall",
+  "pluginManager.inspect",
+  "pluginManager.installBundle",
+  "pluginManager.listBundles",
+  "pluginManager.listPlugins",
+  "pluginManager.listVersionExemptions",
+  "pluginManager.registries",
+  "pluginManager.removeBundle",
+  "pluginManager.setBundleEnabled",
+  "pluginManager.setPluginEnabled",
+  "pluginManager.setVersionExemption",
+  "pluginManager.waitForInstall",
+  "pluginMarket.listIndexes",
+  "pluginMarket.search",
+  "pluginMarket.setIndexes",
+  "pluginRegistryProbe.fastest",
+  "settings.describe",
+  "settings.mutate",
+  "settings.openSettingsDocument",
+  "settings.replace",
+  "settings.update"
+]);
+var HOST_INTERNAL_METHODS = /* @__PURE__ */ new Set([
+  "workspace.initializeDefault"
+]);
+var WIRE_SURFACE = /* @__PURE__ */ new Set([
+  ...USER_ALLOWED,
+  ...ADMIN_ONLY_METHODS,
+  ...HOST_INTERNAL_METHODS
+]);
+function isKnownWireMethod(method) {
+  return WIRE_SURFACE.has(method);
+}
 
 // src/capabilities.ts
 function userAllowedMethods() {
   return [...USER_ALLOWED];
 }
 var USER_DOMAINS = [
-  "session",
-  "workspace",
-  "goals",
-  "subagents",
-  "llm",
-  "host",
-  "skill",
-  "api",
-  // DSH 0.1.6: the sidebar terminal (dsh-api-terminal-controller) — every
-  // method is session-agent-scoped by the Gateway, so it rides the caller's
-  // own agent subtree like `session` does.
-  "terminal",
-  // DSH 0.1.6-alpha.2: the right Sidebar's document preview — the read-only
-  // workspaceFiles surface plus the Office→PDF converter, both scoped to the
-  // viewed session identity (workspaceFileScopeId) the Gateway resolves.
-  "workspaceFiles",
-  "officeToPdf",
-  // DSH 0.1.7: the job controller (SessionJob moved here out of `session`) —
-  // list/follow/kill with the request's sessionId ownership-checked by the
-  // guard (USER_ALLOWED carries job.list/job.follow/job.kill).
-  "job"
-];
+  ...new Set([...USER_ALLOWED].map((method) => method.slice(0, method.indexOf("."))))
+].sort();
 var ADMIN_ONLY_UI_PLUGINS = [
   "@linxin666/dsh-client-ui-plugin-manager",
   "@linxin666/dsh-client-ui-skill-explorer",
@@ -744,82 +827,11 @@ function deriveCapabilities(user) {
   };
 }
 function adminOnlyMethods() {
-  return [
-    "credentials.list",
-    "credentials.get",
-    "credentials.set",
-    "credentials.delete",
-    // DSH 0.1.7: exact wire-method names of the settings controller
-    // (describe/update/replace — `settings.list`/`settings.reset` never
-    // existed on the wire; `canOpenAgentPresetDirectory` was removed in 0.1.7).
-    "settings.describe",
-    "settings.update",
-    "settings.replace",
-    "agentPreset.list",
-    "agentPreset.read",
-    "agentPreset.write",
-    // DSH 0.1.7-rc.1: the preset registry's document viewer
-    // (`agentPresets.readDocument` — view one declaration's child plugin
-    // list). Same strictly-admin posture as the rest of the namespace.
-    "agentPresets.readDocument",
-    "host.path",
-    "host.system",
-    // DSH 0.1.6-alpha.2: the native plugin manager (packages/boot/
-    // plugin-manager, typert namespace `pluginManager`) — installs, enables,
-    // disables, and removes profile bundles. Strictly admin-only: never added
-    // to USER_ALLOWED, and ADMIN_ONLY_NAMESPACES denies it for ordinary users.
-    "pluginManager.listPlugins",
-    "pluginManager.listBundles",
-    "pluginManager.inspect",
-    "pluginManager.setPluginEnabled",
-    "pluginManager.setBundleEnabled",
-    "pluginManager.installBundle",
-    "pluginManager.cancelInstall",
-    "pluginManager.removeBundle",
-    // DSH 0.1.7: the account controller (typert namespace `account`) — the
-    // process-wide upstream DeepSeek Platform grant: browser sign-in, cancel,
-    // and revoke are whole-instance operations; even the read projections
-    // (state/profile/recharge-wallet balance) are the operator's data.
-    // Ordinary users are denied by default; advertised here for admins.
-    // 0.1.7-rc.2 adds `watchExpiry` (credential-expiry notice stream, commit
-    // 8f180cf45f): same strictly-admin posture — it streams the operator's
-    // grant-expiry events to the account page.
-    "account.getState",
-    "account.getProfile",
-    "account.getBalance",
-    "account.startSignIn",
-    "account.cancelSignIn",
-    "account.signOut",
-    "account.watch",
-    "account.watchExpiry",
-    // DSH 0.1.7: the plugin-registry probe the new bundled plugin-manager UI
-    // uses (client/ui-plugin-manager, service id `pluginRegistryProbe`) —
-    // same strictly-admin posture as pluginManager.
-    "pluginRegistryProbe.list",
-    // DSH 0.2.1-alpha.4: the plugin market (packages/boot/plugin-market,
-    // typert namespace `pluginMarket`) — reads and reconfigures the
-    // instance-wide market index list its installs resolve against.
-    // Strictly admin-only: never added to USER_ALLOWED, and
-    // ADMIN_ONLY_NAMESPACES denies it for ordinary users.
-    "pluginMarket.listIndexes",
-    "pluginMarket.setIndexes",
-    "pluginMarket.search"
-  ];
+  return [...ADMIN_ONLY_METHODS];
 }
 function allDomains() {
-  return [
-    ...USER_DOMAINS,
-    "credentials",
-    "settings",
-    "agentPresets",
-    "pluginManager",
-    // DSH 0.1.7: the account controller's namespace (admin-only; see
-    // remote-guard's ADMIN_ONLY_NAMESPACES and the two-segment deny list).
-    "account",
-    // DSH 0.2.1-alpha.4: the plugin market's namespace (admin-only; see
-    // remote-guard's ADMIN_ONLY_NAMESPACES and the two-segment deny list).
-    "pluginMarket"
-  ];
+  const admin = [...new Set([...ADMIN_ONLY_METHODS].map((m) => m.slice(0, m.indexOf("."))))];
+  return [.../* @__PURE__ */ new Set([...USER_DOMAINS, ...admin])].sort();
 }
 function allUiPlugins() {
   return [...CORE_UI_PLUGINS, ...ADMIN_ONLY_UI_PLUGINS];
@@ -1130,6 +1142,12 @@ function createApiBridgeAuth(deps) {
     const endpoint = endpointFromUrl(request.url);
     if (endpoint === void 0) return next();
     if (!USER_ALLOWED.has(endpoint)) {
+      if (!isKnownWireMethod(endpoint)) {
+        try {
+          deps.onUnknownMethod?.(endpoint, user.username);
+        } catch {
+        }
+      }
       if (deps.quietDenials) {
         await denyQuiet(request, response);
         return;
@@ -2420,7 +2438,19 @@ var ADMIN_ONLY_NAMESPACES = /* @__PURE__ */ new Set([
   // pluginManager applies. Ordinary users are denied by default (absent from
   // USER_ALLOWED), this is defense-in-depth, and capabilities.ts mirrors it in
   // the two-segment deny list and the quiet-deny set.
-  "pluginMarket"
+  "pluginMarket",
+  // DSH 0.2.1-rc.2 (dsh-login 0.3.6, issue #4): namespaces the real wire
+  // registry carries that the pre-rename allow-list never mentioned. Their
+  // methods are admin-only by construction (and already absent from
+  // USER_ALLOWED); listing the namespaces keeps this seam explicit so a future
+  // USER_ALLOWED edit cannot quietly open host-side code execution
+  // (`dynamicCordisRunner` runs plugin code on the host, `claudeCodeMods`
+  // toggles host integrations, `pluginInventory` enumerates the host plugin
+  // tree, `pluginRegistryProbe` is the plugin manager's probe).
+  "pluginInventory",
+  "pluginRegistryProbe",
+  "dynamicCordisRunner",
+  "claudeCodeMods"
 ]);
 var GUARDED_ID_FIELDS = [
   "sessionId",
@@ -2607,6 +2637,15 @@ function apply(ctx, config) {
   void bootCompat;
   ctx.effect(() => ctx.webServer.registerFallback(gatewayHandler), "dsh-login: gateway fallback");
   if (config.apiBridgeAuth) {
+    const reported = /* @__PURE__ */ new Set();
+    const reportUnknownMethod = (method, username) => {
+      if (reported.has(method)) return;
+      reported.add(method);
+      const message = `dsh-login: /api/${method} was denied for '${username}' but is not part of the DSH ${WIRE_SURFACE_DSH_VERSION} wire surface this build knows \u2014 upstream may have renamed it; refresh src/api-filter.ts (node scripts/dump-wire-surface.mjs)`;
+      const logger = ctx.logger;
+      if (typeof logger?.warn === "function") logger.warn(message);
+      else console.warn(message);
+    };
     const ownedProvider = (username) => probeOwnedSessionIds(username, ownership, createHostSessionSource(ctx));
     ctx.effect(
       () => ctx.on("connection/request", createApiBridgeAuth({
@@ -2614,7 +2653,8 @@ function apply(ctx, config) {
         ownership,
         quietDenials: config.quietDenials,
         ownedProvider,
-        provisioner
+        provisioner,
+        onUnknownMethod: reportUnknownMethod
       }), { global: true }),
       "dsh-login: /api bridge auth wall"
     );

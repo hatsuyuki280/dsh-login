@@ -193,6 +193,9 @@ export function filterWorkspaceListValue(value: unknown, owned: ReadonlySet<stri
 export const RECORD_METHODS: ReadonlySet<string> = new Set(['session.create', 'session.fork', 'workspace.create'])
 
 /** Wire methods whose responses are narrowed to the caller's owned sessions. */
+// `workspace.list` only exists on the pre-0.2 wire lines this package still
+// supports (peer range starts at 0.1.5); on 0.2.x the session list arrives via
+// `session.list`/`session.search`. Keeping the entry is inert, not load-bearing.
 export const FILTER_METHODS: ReadonlySet<string> = new Set(['session.list', 'session.search', 'workspace.list'])
 
 /**

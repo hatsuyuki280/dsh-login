@@ -110,7 +110,7 @@ fail-closed）。`owns(id)`：管理员恒真；否则 `lookup(id) === resolveUs
 | 4 | 用户 A 对自己的工作区 rename/pin | 正常 |
 | 5 | 用户 B 对 A 的工作区 rename/delete | 拒绝（forbidden） |
 | 6 | 管理员登录 | 全部会话/工作区可见可操作，无限制 |
-| 7 | 用户调用管理员方法（如 `credentials.list`） | 拒绝（桥墙已拦；守卫同判） |
+| 7 | 用户调用管理员方法（如 `credentials.describe`） | 拒绝（桥墙已拦；守卫同判） |
 | 8 | 登出后刷新 | 302 到 `/login`，无数据残留 |
 
 补充检查：`<dataDir>/ownership.json` 中能看到两个用户的 session→username 记录

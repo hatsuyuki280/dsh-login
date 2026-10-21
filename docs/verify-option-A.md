@@ -86,7 +86,7 @@ Verify with **two browsers**:
   - `alice` creates + uses a chat; `bob`'s history/conversations must NOT list it.
   - `alice`'s `session.list` / `workspace.list` must only return her own; `bob` sees neither her session nor her workspace.
   - `bob` trying admin domains (`credentials.*`, `settings.*`, `agentPresets.*`) must be refused (403 or quiet 204/404), never executed.
-  - `bob` must not `session.history`/`rename`/`fork`/`prompt` a session he does not own.
+  - `bob` must not `session.page`/`rename`/`fork`/`prompt` a session he does not own.
 - Browser C: admin: sees all sessions/workspaces and full config.
 - Subagent lineage: a child of `alice`'s session is owned by `alice` (follows `parentSessionId`).
 

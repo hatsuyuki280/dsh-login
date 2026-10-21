@@ -1,7 +1,7 @@
 {
   "name": "@islibaodong/dsh-login",
   "description": "Multi-user authentication gateway plugin for the DSH Web GUI, with per-role whole-UI gating",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "type": "module",
   "main": "dist/index.js",
   "exports": {
@@ -76,6 +76,7 @@
   "files": [
     "src",
     "dist",
+    "scripts/dump-wire-surface.mjs",
     "cordis.patch.yml",
     "screenshots.json",
     "LICENSE",

@@ -70,12 +70,15 @@ describe('capabilities', () => {
     // surface plus the Office→PDF converter. Every wire call carries the
     // scoped session identity (workspaceFileScopeId) the guard checks.
     for (const m of [
-      'workspaceFiles.read', 'workspaceFiles.readAll', 'workspaceFiles.readBytes',
-      'workspaceFiles.readRelated', 'workspaceFiles.stat', 'workspaceFiles.list',
+      'workspaceFiles.read', 'workspaceFiles.readBytes',
+      'workspaceFiles.stat', 'workspaceFiles.list',
       'workspaceFiles.changes', 'officeToPdf.render', 'officeToPdf.generation',
     ]) {
       expect(USER_ALLOWED.has(m)).toBe(true)
     }
+    // The retired spellings `workspaceFiles.readAll`/`readRelated` were never on
+    // this wire line (see tests/wire-surface.spec.ts).
+    expect(USER_ALLOWED.has('workspaceFiles.readAll')).toBe(false)
   })
 
   it('exposes the alpha.2 document-preview domains to ordinary users', () => {
@@ -163,7 +166,7 @@ describe('capabilities', () => {
 
 describe('isReadProbe', () => {
   it('classifies read-verb methods as read probes', () => {
-    for (const m of ['session.list', 'llm.providers', 'host.status', 'agentPreset.list', 'ui.plugins']) {
+    for (const m of ['session.list', 'llm.listProviders', 'skills.list', 'agentPresets.list', 'pluginInventory.list']) {
       expect(isReadProbe(m)).toBe(true)
     }
   })

@@ -78,6 +78,15 @@ const ADMIN_ONLY_NAMESPACES = new Set([
   // USER_ALLOWED), this is defense-in-depth, and capabilities.ts mirrors it in
   // the two-segment deny list and the quiet-deny set.
   'pluginMarket',
+  // DSH 0.2.1-rc.2 (dsh-login 0.3.6, issue #4): namespaces the real wire
+  // registry carries that the pre-rename allow-list never mentioned. Their
+  // methods are admin-only by construction (and already absent from
+  // USER_ALLOWED); listing the namespaces keeps this seam explicit so a future
+  // USER_ALLOWED edit cannot quietly open host-side code execution
+  // (`dynamicCordisRunner` runs plugin code on the host, `claudeCodeMods`
+  // toggles host integrations, `pluginInventory` enumerates the host plugin
+  // tree, `pluginRegistryProbe` is the plugin manager's probe).
+  'pluginInventory', 'pluginRegistryProbe', 'dynamicCordisRunner', 'claudeCodeMods',
 ])
 
 /**

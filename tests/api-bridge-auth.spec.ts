@@ -188,6 +188,61 @@ describe('createApiBridgeAuth (unit)', () => {
     expect(res.status).toBe(403)
   })
 
+  it('admits the methods issue #4 reported as denied (ordinary user, real wire names)', async () => {
+    const store = new SessionStore(3600)
+    const { token } = store.create('alice', false)
+    const wall = createApiBridgeAuth(unitDeps(store))
+    // The three symptoms: the composer model dialog, the add-workspace picker,
+    // and the settings→models provider catalog. Each must reach the inner
+    // handler instead of the forbidden envelope.
+    for (const endpoint of [
+      'session.modelCatalog',
+      'directoryPicker.pick',
+      'directoryPicker.list',
+      'llm.listProviders',
+      'llm.discoverModels',
+    ]) {
+      const res = fakeResponse()
+      let innerRan = false
+      await wall(
+        fakeRequest(`dsh_session=${token}`, {
+          method: 'POST',
+          url: `/api/${endpoint}`,
+          body: JSON.stringify({ type: 'client-request', rpcId: 'rpc-1', method: endpoint, payload: {} }),
+        }) as never,
+        res as never,
+        async () => { innerRan = true },
+      )
+      expect(innerRan, `${endpoint} must be admitted for an ordinary user`).toBe(true)
+      expect(res.status).toBeUndefined()
+    }
+  })
+
+  it('reports an unknown (renamed) method but stays silent for a known admin-only one', async () => {
+    const store = new SessionStore(3600)
+    const { token } = store.create('alice', false)
+    const seen: string[] = []
+    const wall = createApiBridgeAuth(unitDeps(store, { onUnknownMethod: method => seen.push(method) }))
+    const post = async (endpoint: string): Promise<void> => {
+      await wall(
+        fakeRequest(`dsh_session=${token}`, {
+          method: 'POST',
+          url: `/api/${endpoint}`,
+          body: JSON.stringify({ type: 'client-request', rpcId: 'rpc-1', method: endpoint, payload: {} }),
+        }) as never,
+        fakeResponse() as never,
+        async () => 'inner',
+      )
+    }
+    // `credentials.list` is the 0.3.5 spelling that no longer exists: this is
+    // the issue-#4 failure mode, so it must be reported.
+    await post('credentials.list')
+    // `credentials.describe` is admin-only but *real*: an ordinary denial is the
+    // intended boundary and must not spam the log.
+    await post('credentials.describe')
+    expect(seen).toEqual(['credentials.list'])
+  })
+
   it('falls back to 403 when the denied body cannot yield an rpcId', async () => {
     const store = new SessionStore(3600)
     const { token } = store.create('alice', false)

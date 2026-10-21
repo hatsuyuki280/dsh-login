@@ -29,7 +29,7 @@
  * restates "not here for you" in a form the browser does not treat as an
  * error.
  */
-import { USER_ALLOWED } from './api-filter.ts'
+import { ADMIN_ONLY_METHODS, USER_ALLOWED } from './api-filter.ts'
 import type { AuthUser } from './api-filter.ts'
 
 /** Single-segment RpcMethodMap methods an ordinary user may call (physical layer). */
@@ -80,34 +80,17 @@ export function isUserDeniedTwoSegment(domain: string): boolean {
 }
 
 /**
- * Whole two-segment domains the browser half of UI plugins poll that a normal
- * user may reach (those the decorated proxy exposes, ownership-scoped). These
- * are safe for the client to render for an ordinary user; admin-only domains
- * (`credentials`, `settings`, `agentPresets`) are deliberately absent.
+ * Namespaces of the methods an ordinary user may call.
+ *
+ * Derived from {@link USER_ALLOWED} rather than hand-maintained: the 0.3.5
+ * literal still listed the retired `host`/`skill` namespaces and was missing
+ * every namespace the real wire surface added, which is the same drift that
+ * broke the allow-list itself (issue #4). Deriving means the advertised domain
+ * surface can never disagree with the method surface.
  */
 export const USER_DOMAINS: readonly string[] = [
-  'session',
-  'workspace',
-  'goals',
-  'subagents',
-  'llm',
-  'host',
-  'skill',
-  'api',
-  // DSH 0.1.6: the sidebar terminal (dsh-api-terminal-controller) — every
-  // method is session-agent-scoped by the Gateway, so it rides the caller's
-  // own agent subtree like `session` does.
-  'terminal',
-  // DSH 0.1.6-alpha.2: the right Sidebar's document preview — the read-only
-  // workspaceFiles surface plus the Office→PDF converter, both scoped to the
-  // viewed session identity (workspaceFileScopeId) the Gateway resolves.
-  'workspaceFiles',
-  'officeToPdf',
-  // DSH 0.1.7: the job controller (SessionJob moved here out of `session`) —
-  // list/follow/kill with the request's sessionId ownership-checked by the
-  // guard (USER_ALLOWED carries job.list/job.follow/job.kill).
-  'job',
-]
+  ...new Set([...USER_ALLOWED].map(method => method.slice(0, method.indexOf('.')))),
+].sort()
 
 /**
  * UI plugin ids hidden from an ordinary user (admin-only surfaces).
@@ -172,65 +155,23 @@ export function deriveCapabilities(user: AuthUser): Capabilities {
   }
 }
 
-/** Methods an admin may additionally call (the allow-list does not carry them). */
+/**
+ * Methods an admin may additionally call (the allow-list does not carry them).
+ *
+ * This is the exact complement of the ordinary-user allow-list within the wire
+ * surface (`src/api-filter.ts` ADMIN_ONLY_METHODS + HOST_INTERNAL_METHODS), so
+ * the advertisement is complete instead of the curated sample it used to be —
+ * that sample still named `credentials.list`, `host.path` and
+ * `pluginRegistryProbe.list`, none of which exist on this wire line.
+ */
 function adminOnlyMethods(): string[] {
-  // The physical layer's allow-list is the ordinary-user boundary. The admin
-  // surface spans every RpcMethodMap key plus the admin-only domains; we
-  // advertise a representative superset. Deriving the true full list would
-  // require importing the harness RpcMethodMap, which is out of scope for a
-  // capability advertisement (the physical layer remains authoritative).
-  return [
-    'credentials.list', 'credentials.get', 'credentials.set', 'credentials.delete',
-    // DSH 0.1.7: exact wire-method names of the settings controller
-    // (describe/update/replace — `settings.list`/`settings.reset` never
-    // existed on the wire; `canOpenAgentPresetDirectory` was removed in 0.1.7).
-    'settings.describe', 'settings.update', 'settings.replace',
-    'agentPreset.list', 'agentPreset.read', 'agentPreset.write',
-    // DSH 0.1.7-rc.1: the preset registry's document viewer
-    // (`agentPresets.readDocument` — view one declaration's child plugin
-    // list). Same strictly-admin posture as the rest of the namespace.
-    'agentPresets.readDocument',
-    'host.path', 'host.system',
-    // DSH 0.1.6-alpha.2: the native plugin manager (packages/boot/
-    // plugin-manager, typert namespace `pluginManager`) — installs, enables,
-    // disables, and removes profile bundles. Strictly admin-only: never added
-    // to USER_ALLOWED, and ADMIN_ONLY_NAMESPACES denies it for ordinary users.
-    'pluginManager.listPlugins', 'pluginManager.listBundles', 'pluginManager.inspect',
-    'pluginManager.setPluginEnabled', 'pluginManager.setBundleEnabled',
-    'pluginManager.installBundle', 'pluginManager.cancelInstall', 'pluginManager.removeBundle',
-    // DSH 0.1.7: the account controller (typert namespace `account`) — the
-    // process-wide upstream DeepSeek Platform grant: browser sign-in, cancel,
-    // and revoke are whole-instance operations; even the read projections
-    // (state/profile/recharge-wallet balance) are the operator's data.
-    // Ordinary users are denied by default; advertised here for admins.
-    // 0.1.7-rc.2 adds `watchExpiry` (credential-expiry notice stream, commit
-    // 8f180cf45f): same strictly-admin posture — it streams the operator's
-    // grant-expiry events to the account page.
-    'account.getState', 'account.getProfile', 'account.getBalance',
-    'account.startSignIn', 'account.cancelSignIn', 'account.signOut', 'account.watch',
-    'account.watchExpiry',
-    // DSH 0.1.7: the plugin-registry probe the new bundled plugin-manager UI
-    // uses (client/ui-plugin-manager, service id `pluginRegistryProbe`) —
-    // same strictly-admin posture as pluginManager.
-    'pluginRegistryProbe.list',
-    // DSH 0.2.1-alpha.4: the plugin market (packages/boot/plugin-market,
-    // typert namespace `pluginMarket`) — reads and reconfigures the
-    // instance-wide market index list its installs resolve against.
-    // Strictly admin-only: never added to USER_ALLOWED, and
-    // ADMIN_ONLY_NAMESPACES denies it for ordinary users.
-    'pluginMarket.listIndexes', 'pluginMarket.setIndexes', 'pluginMarket.search',
-  ]
+  return [...ADMIN_ONLY_METHODS]
 }
 
 /** Every user domain plus the admin-only ones. */
 function allDomains(): string[] {
-  return [...USER_DOMAINS, 'credentials', 'settings', 'agentPresets', 'pluginManager',
-    // DSH 0.1.7: the account controller's namespace (admin-only; see
-    // remote-guard's ADMIN_ONLY_NAMESPACES and the two-segment deny list).
-    'account',
-    // DSH 0.2.1-alpha.4: the plugin market's namespace (admin-only; see
-    // remote-guard's ADMIN_ONLY_NAMESPACES and the two-segment deny list).
-    'pluginMarket']
+  const admin = [...new Set([...ADMIN_ONLY_METHODS].map(m => m.slice(0, m.indexOf('.'))))]
+  return [...new Set([...USER_DOMAINS, ...admin])].sort()
 }
 
 /** Every UI plugin id (core + admin-only). */
@@ -244,12 +185,14 @@ function allUiPlugins(): string[] {
  * plugin boot probes).
  */
 export const QUIET_DENY_METHODS: ReadonlySet<string> = new Set([
-  'agentPreset.list', 'agentPreset.get',
-  'credentials.list',
-  'settings.list', 'settings.describe',
-  'pluginManager.list', 'plugin.list',
-  'doctor.status', 'doctor.run',
-  'ui.plugins', 'ui.list',
+  // Real admin-surface names on the DSH 0.2.1 wire (the pre-0.1.5 spellings
+  // this set used to carry — `agentPreset.list`, `credentials.list`,
+  // `settings.list`, `pluginManager.list`, `ui.plugins` — do not exist).
+  'agentPresets.list', 'agentPresets.read',
+  'credentials.describe',
+  'settings.describe', 'settings.openSettingsDocument',
+  'pluginManager.listPlugins', 'pluginManager.listBundles',
+  'pluginManager.registries', 'pluginManager.inspect',
   // DSH 0.1.7: the account controller's read projections — every user's GUI
   // may probe the account page at boot; deny quietly instead of a red wall
   // (the whole namespace is admin-only; writes stay loud 403). rc.2's
@@ -262,6 +205,9 @@ export const QUIET_DENY_METHODS: ReadonlySet<string> = new Set([
   // signed-in profile; deny quietly instead of a red wall (`setIndexes` is a
   // write and stays a loud 403).
   'pluginMarket.listIndexes', 'pluginMarket.search',
+  // The host plugin tree (`ui-settings-plugin-inventory` probes it at boot).
+  'pluginInventory.list',
+  'pluginRegistryProbe.fastest',
 ])
 
 /**
@@ -272,8 +218,16 @@ export const QUIET_DENY_METHODS: ReadonlySet<string> = new Set([
 export function isReadProbe(method: string): boolean {
   if (QUIET_DENY_METHODS.has(method)) return true
   const verb = method.slice(method.lastIndexOf('.') + 1).toLowerCase()
-  // Read-style verbs are safe to flush quietly; mutating verbs are not.
-  return READ_VERBS.has(verb)
+  // Read-style verbs are safe to flush quietly; mutating verbs are not. The
+  // wire spells many reads as a camel-cased verb phrase
+  // (`listProviders`, `listIndexes`, `getState`, `discoverModels`), so match
+  // the verb as a prefix rather than requiring the exact word — 0.3.5's exact
+  // match silently classified those as writes and denied them loudly.
+  if (READ_VERBS.has(verb)) return true
+  for (const readVerb of READ_VERBS) {
+    if (readVerb.length >= 4 && verb.startsWith(readVerb)) return true
+  }
+  return false
 }
 
 /** Trailing verbs treated as read-only probes. */

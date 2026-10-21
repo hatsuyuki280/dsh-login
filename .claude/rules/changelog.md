@@ -1,5 +1,47 @@
 # Memory Changelog
 
+## 2026-10-21 — 0.3.6: issue #4 fix (ordinary-user allow-list drifted off the 0.2.1-rc.2 wire surface)
+- **Report** (issue #4, author lingistic123, DSH 0.2.1-rc.2 + dsh-login 0.3.5):
+  ordinary users get `not permitted for this user` on (1) add-workspace,
+  (2) the composer model dialog, (3) settings → models ("加载提供商目录失败").
+  Admins unaffected. Root cause: `USER_ALLOWED` was written against the
+  **pre-0.2 spelling set** (`session.models`, `session.history`,
+  `llm.providers`/`llm.models`, `skill.list`, `goal.*`, `subagent.*`,
+  `host.describe`, `workspace.list`, `respond`, `workspaceFiles.readAll`/
+  `readRelated`) — every entry a dead name on rc.2 — while the real names
+  (`session.modelCatalog`, `llm.listProviders`, `directoryPicker.*`, …) were
+  absent, so `api-bridge-auth.ts` denied them at the method gate.
+- **Fix**: `src/api-filter.ts` rewritten as an **exhaustive** classification of
+  the 146-method registry: `USER_ALLOWED` (92), `ADMIN_ONLY_METHODS` (53),
+  `HOST_INTERNAL_METHODS` (1, `workspace.initializeDefault`), plus
+  `classifyWireMethod()`/`isKnownWireMethod()`; `WIRE_SURFACE_DSH_VERSION =
+  '0.2.1-rc.2'`. New `scripts/dump-wire-surface.mjs` (re-derives the list from
+  a DSH checkout) and `tests/fixtures/wire-surface.json` (vendored snapshot),
+  guarded by `tests/wire-surface.spec.ts` (9 cases: no unclassified method, no
+  dead entry, buckets disjoint + sizes 92/53/1, live cross-check against the
+  checkout, each issue-#4 method user-reachable, each retired spelling gone).
+- `src/capabilities.ts`: `USER_DOMAINS`/`adminOnlyMethods()`/`allDomains()` are
+  now derived from the buckets; `QUIET_DENY_METHODS` re-spelled to real names;
+  `isReadProbe()` matches read verbs as prefixes (`listProviders`,
+  `listIndexes`, `discoverModels`) instead of exact words.
+- `src/remote-guard.ts`: `ADMIN_ONLY_NAMESPACES` += `pluginInventory`,
+  `pluginRegistryProbe`, `dynamicCordisRunner`, `claudeCodeMods`.
+- `src/api-bridge-auth.ts` + `src/index.ts`: unknown-method denials (not on this
+  build's wire surface) are reported **once per method** through `ctx.logger`
+  (fallback `console.warn`) with the target DSH version — an upstream rename is
+  now a host-log diagnostic instead of a silent user lockout.
+- Policy call: `directoryPicker.pick`/`list`/`createDirectory` **admitted** to
+  ordinary users (issue #4's own recommendation). Rationale: the privilege
+  boundary is `workspace.create`, still confined to the caller's sandbox, and
+  `terminal.*` already lets users run shell as the same system user — no new
+  capability class. README troubleshooting section rewritten accordingly.
+- Docs: README/README.zh "two-layer model" re-spelled to real names (+ 0.3.6
+  headline, 21 files/267 tests), `docs/compose-guard.md`,
+  `docs/verify-option-A.md`, new `docs/adapt-dsh-0.2.1-rc.2-issue-4.md`.
+- Tests: 267/267 green (21 files). Bundle rebuilt (`dist/index.js` carries the
+  new surface). Published as 0.3.6.
+
+
 ## 2026-10-19 (12:00 scheduled watch) — no new DSH release; 0.3.5 stays current
 - Scheduled cron run (`0 12 * * *` Asia/Shanghai, trigger 2026-10-19T04:00Z).
   Fresh evidence, all three channels, all unchanged since the 10-18 watch:

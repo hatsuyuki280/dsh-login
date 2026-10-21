@@ -90,8 +90,8 @@ describe('wrapRemoteGateway (option A isolation glue)', () => {
       .resolves.toEqual({ invoked: 'terminal.retain' })
     // The document preview reads ride the scoped session identity
     // (`workspaceFileScopeId` on the wire): an owned id passes.
-    await expect(wrapped.invoke({ namespace: 'workspaceFiles', method: 'readAll', args: { workspaceFileScopeId: 's-1', path: 'report.md' } }))
-      .resolves.toEqual({ invoked: 'workspaceFiles.readAll' })
+    await expect(wrapped.invoke({ namespace: 'workspaceFiles', method: 'read', args: { workspaceFileScopeId: 's-1', path: 'report.md' } }))
+      .resolves.toEqual({ invoked: 'workspaceFiles.read' })
     await expect(wrapped.invoke({ namespace: 'officeToPdf', method: 'render', args: { workspaceFileScopeId: 's-1', path: 'report.docx', priority: 'foreground' } }))
       .resolves.toEqual({ invoked: 'officeToPdf.render' })
     // ...and a foreign scoped identity is denied (the document preview can
@@ -178,7 +178,7 @@ describe('wrapRemoteGateway (option A isolation glue)', () => {
   it('rejects a call addressing a session outside the owned set', async () => {
     const g = fakeGateway()
     const wrapped = wrapRemoteGateway(g, () => alice, id => owned.has(id))
-    await expect(wrapped.invoke({ namespace: 'session', method: 'history', args: { sessionId: 's-foreign' } }))
+    await expect(wrapped.invoke({ namespace: 'session', method: 'page', args: { sessionId: 's-foreign' } }))
       .rejects.toThrow(/forbidden/)
     await expect(wrapped.invoke({ namespace: 'workspace', method: 'rename', args: { workspaceId: 'w-foreign' } }))
       .rejects.toThrow(/forbidden/)
@@ -210,18 +210,18 @@ describe('wrapRemoteGateway (option A isolation glue)', () => {
   it('rejects a nested-object sessionId (e.g. under a wrapper key)', async () => {
     const g = fakeGateway()
     const wrapped = wrapRemoteGateway(g, () => alice, id => owned.has(id))
-    await expect(wrapped.invoke({ namespace: 'subagent', method: 'prompt', args: { agentId: { id: 's-foreign' } } }))
+    await expect(wrapped.invoke({ namespace: 'subagents', method: 'prompt', args: { agentId: { id: 's-foreign' } } }))
       .rejects.toThrow(/forbidden/)
-    await expect(wrapped.invoke({ namespace: 'subagent', method: 'prompt', args: { agentId: { id: 's-1' } } }))
-      .resolves.toEqual({ invoked: 'subagent.prompt' })
+    await expect(wrapped.invoke({ namespace: 'subagents', method: 'prompt', args: { agentId: { id: 's-1' } } }))
+      .resolves.toEqual({ invoked: 'subagents.prompt' })
     expect(g.calls).toHaveLength(1)
   })
 
   it('passes a call addressing an owned id', async () => {
     const g = fakeGateway()
     const wrapped = wrapRemoteGateway(g, () => alice, id => owned.has(id))
-    const res = await wrapped.invoke({ namespace: 'session', method: 'history', args: { sessionId: 's-1' } })
-    expect(res).toEqual({ invoked: 'session.history' })
+    const res = await wrapped.invoke({ namespace: 'session', method: 'page', args: { sessionId: 's-1' } })
+    expect(res).toEqual({ invoked: 'session.page' })
   })
 
   it('guards the stream path identically', async () => {
@@ -348,9 +348,9 @@ describe('composed seam end-to-end (agents → createRemoteIsolation → wrapRem
   it('allows a user to read their own session and blocks a foreign one', async () => {
     const { wrapped, calls, setCurrent } = compose()
     setCurrent('s1') // alice active
-    await expect(wrapped.invoke({ namespace: 'session', method: 'history', args: { sessionId: 's1' } })).resolves.toBe('ok')
+    await expect(wrapped.invoke({ namespace: 'session', method: 'page', args: { sessionId: 's1' } })).resolves.toBe('ok')
     expect(calls).toHaveLength(1)
-    await expect(wrapped.invoke({ namespace: 'session', method: 'history', args: { sessionId: 's2' } }))
+    await expect(wrapped.invoke({ namespace: 'session', method: 'page', args: { sessionId: 's2' } }))
       .rejects.toThrow(/forbidden/)
     expect(calls).toHaveLength(1) // foreign call never reached the gateway
   })
@@ -359,8 +359,8 @@ describe('composed seam end-to-end (agents → createRemoteIsolation → wrapRem
     const { wrapped, calls, setCurrent } = compose()
     // bob active — he may read his own session, not alice's.
     setCurrent('s2')
-    await expect(wrapped.invoke({ namespace: 'session', method: 'history', args: { sessionId: 's2' } })).resolves.toBe('ok')
-    await expect(wrapped.invoke({ namespace: 'session', method: 'history', args: { sessionId: 's1' } }))
+    await expect(wrapped.invoke({ namespace: 'session', method: 'page', args: { sessionId: 's2' } })).resolves.toBe('ok')
+    await expect(wrapped.invoke({ namespace: 'session', method: 'page', args: { sessionId: 's1' } }))
       .rejects.toThrow(/forbidden/)
     expect(calls).toHaveLength(1)
   })
@@ -377,7 +377,7 @@ describe('composed seam end-to-end (agents → createRemoteIsolation → wrapRem
     calls.length = 0
     setCurrent('admin-session')
     await expect(wrapped.invoke({ namespace: 'credentials', method: 'list', args: {} })).resolves.toBe('ok')
-    await expect(wrapped.invoke({ namespace: 'session', method: 'history', args: { sessionId: 's1' } })).resolves.toBe('ok')
+    await expect(wrapped.invoke({ namespace: 'session', method: 'page', args: { sessionId: 's1' } })).resolves.toBe('ok')
     expect(calls).toHaveLength(2)
   })
 })
@@ -407,9 +407,9 @@ describe('wrapRemoteGateway forwards non-dispatch gateway members (DSH 0.2.0-rc.
   it('keeps the guarded invoke/stream semantics on the spread wrapper', async () => {
     const g = fakeGateway()
     const wrapped = wrapRemoteGateway(g, () => alice, id => owned.has(id))
-    await expect(wrapped.invoke({ namespace: 'session', method: 'history', args: { sessionId: 's-1' } }))
-      .resolves.toEqual({ invoked: 'session.history' })
-    await expect(wrapped.invoke({ namespace: 'session', method: 'history', args: { sessionId: 's-9' } }))
+    await expect(wrapped.invoke({ namespace: 'session', method: 'page', args: { sessionId: 's-1' } }))
+      .resolves.toEqual({ invoked: 'session.page' })
+    await expect(wrapped.invoke({ namespace: 'session', method: 'page', args: { sessionId: 's-9' } }))
       .rejects.toThrow(/forbidden/)
     expect(g.calls).toHaveLength(1)
   })

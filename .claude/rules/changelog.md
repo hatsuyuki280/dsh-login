@@ -1,5 +1,46 @@
 # Memory Changelog
 
+## 2026-10-23 (manual watch) — no new DSH release; 0.3.6 stays current
+- Manual release watch (user-requested, session 2026-10-23T14:48+08:00).
+  Detection (fresh evidence, all channels):
+  - `git fetch origin --tags --prune` in `E:\code\deepseek-harness` (clean):
+    newest tag still `dsh-v0.2.1-rc.2` (→ `687f282e86`, the release merge
+    PR #6408); `git rev-list dsh-v0.2.1-rc.2..origin/master --count` = **0**
+    — no commits past the release merge; local `dev` == `origin/master` ==
+    the tag commit (checkout CLAUDE.md dirty + untracked agent dirs only,
+    no source drift).
+  - npm official registry: `@deepseek-ai/dsh` dist-tags
+    `{latest: 0.2.1-rc.2, next: 0.2.1-rc.2, alpha: 0.2.1-alpha.5}` — the
+    `latest` tag now ALSO sits on rc.2 (published 2026-10-17T08:24Z); all
+    six `@deepseek-ai/dsh-*` peers (web-frontend, host-webserver,
+    host-frontend-static, settings, client-connection, credentials) still
+    `alpha=0.2.1-alpha.5` / `next=0.2.1-rc.2`, `time.modified` 2026-10-17 —
+    no publish since rc.2. Vendored pins stable: cordis `4.0.5`,
+    schemastery `3.18.5`, include `1.0.10`, loader `1.0.6`.
+    `@islibaodong/dsh-login` `latest=0.3.6` (published 2026-10-21, time.modified
+    2026-10-21T08:51Z — the current release; nothing newer).
+  - Multi-user re-check at `origin/master` (= the tag commit): grep
+    `multi.?user|multiuser|role.?based|\brbac\b` over `packages/` + `apps/`
+    (rg, tests excluded) = **1 hit** — `packages/api/remote-access/README.md`
+    (the authorize-only non-owner-Peer substrate; identical to the 10-18 and
+    10-19 verdicts). No native accounts upstream; dsh-login remains the
+    multi-user layer. `__DSH_BOOT__` boot-graph lever intact
+    (`packages/client/modules/src/index.ts:592`,
+    `rows.push({ kind: 'global', name: '__DSH_BOOT__', value: graph })`)
+    — uiRoleGate intact. Role-based whole-UI gating stays SHIPPED
+    (0.3.0 uiRoleGate + 0.3.1 bridge-wall enforcement) — evaluation closed.
+- **Conclusion: no new DSH version → no adaptation needed.** dsh-login
+  0.3.6 remains current (last-adapted runtime 0.2.1-rc.2 IS the current
+  npm `latest`); peer ranges (`>=0.2.1-alpha.1 <0.3.0-0` + the rc.2 devDeps)
+  already cover the latest runtime. No code changes → no README fix, no
+  release (release only when a new DSH version requires adaptation).
+- Verification: `npm test` = **21 files / 267 tests green** (5.92 s) on the
+  current tree (commit `c39eab2`); node_modules verified in place at
+  `0.2.1-rc.2` × 10 + cordis 4.0.5 / schemastery 3.18.5 / include 1.0.10 /
+  loader 1.0.6 — the wire-surface live cross-check against the checkout
+  passed inside the suite.
+- Changelog entry committed + pushed per the release-watch convention.
+
 ## 2026-10-21 — 0.3.6: issue #4 fix (ordinary-user allow-list drifted off the 0.2.1-rc.2 wire surface)
 - **Report** (issue #4, author lingistic123, DSH 0.2.1-rc.2 + dsh-login 0.3.5):
   ordinary users get `not permitted for this user` on (1) add-workspace,

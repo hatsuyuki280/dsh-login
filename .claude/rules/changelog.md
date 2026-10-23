@@ -40,6 +40,15 @@
   loader 1.0.6 — the wire-surface live cross-check against the checkout
   passed inside the suite.
 - Changelog entry committed + pushed per the release-watch convention.
+- **Follow-up same day (user request): README restructure.** In both
+  `README.md` and `README.zh.md` the problem-statement section
+  (`## The problem it solves` / `## 这个插件解决什么问题`) moved to the very
+  top (right after the intro + screenshots, L11-23), and the huge
+  `> **Released:**` / `> **已发布：**` + adaptation-history blockquotes moved
+  down inside `## Current status` / `## 当前状态` (now directly under that
+  heading). Pure line re-ordering, no content edits; line counts unchanged
+  (300 / 284), CRLF preserved. Motivation: the release-notes wall of text was
+  burying the repo introduction.
 
 ## 2026-10-21 — 0.3.6: issue #4 fix (ordinary-user allow-list drifted off the 0.2.1-rc.2 wire surface)
 - **Report** (issue #4, author lingistic123, DSH 0.2.1-rc.2 + dsh-login 0.3.5):

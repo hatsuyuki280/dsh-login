@@ -60,9 +60,12 @@
   updated. `docs/PROJECT-INDEX.md` deliberately NOT touched — it is a
   v0.1.0-era snapshot last updated in August; no release since 0.3.4 has
   updated it (stale, flagged).
-- Release: commit + tag `v0.3.7` + push; npm publish via the `.env`
+- Release: commit `27eed37` + tag `v0.3.7` + push (master `e2f6053..27eed37`,
+  tag `* [new tag] v0.3.7`); npm publish exit 0 via the `.env`
   `NPM_ACCESS_TOKENS` temp-npmrc flow (temp file deleted, token never
-  printed); gh release. *(result recorded after completion)*
+  printed; unpacked 744.3 kB, shasum `e5c5fe32…`, 36 files); registry
+  verified `dist-tags.latest = 0.3.7` after the ~60s lag; gh release
+  https://github.com/islibaodong/dsh-login/releases/tag/v0.3.7.
 
 ## 2026-10-23 (manual watch) — no new DSH release; 0.3.6 stays current
 - Manual release watch (user-requested, session 2026-10-23T14:48+08:00).

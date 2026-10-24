@@ -28,7 +28,8 @@
   the shipped `connection` row must stay disabled while dsh-login's takeover
   is active.
 - vitest resolves `@deepseek-ai/*` at RUNTIME from `node_modules` (real npm
-  tarballs, devDeps pinned to `^0.2.1-rc.2` since 2026-10-18; before that
+  tarballs, devDeps pinned to `^0.2.1-rc.3` since 2026-10-24, before that
+  `^0.2.1-rc.2` since 2026-10-18; before that
   `^0.2.1-alpha.4`, and `^0.1.7-alpha.2` before 2026-09-23) — there are
   NO vitest aliases. Only tsconfig `paths` map `@deepseek-ai/*` to the harness
   checkout (`E:/code/deepseek-harness`) for TYPES. After a DSH upgrade:
@@ -68,7 +69,9 @@
   URL is unchanged and dsh-login's single-file `dist/client.js` flow is
   unaffected (verified 2026-10-15). rc.2 note (2026-10-18): the
   `dsh-client-connection` client half is unchanged alpha.4→rc.2, so a rebuild
-  reproduces `dist/*` byte-identical — no re-stamp churn.
+  reproduces `dist/*` byte-identical — no re-stamp churn. rc.3 note
+  (2026-10-24): unchanged again rc.2→rc.3 (`dist/client.js` byte-identical;
+  only `dist/index.js` re-stamps `WIRE_SURFACE_DSH_VERSION`).
 - **rc.2 moved the vendored packages to STABLE** (2026-10-18): pin cordis
   `~4.0.5`, schemastery `~3.18.5`, include `~1.0.10`, loader `~1.0.6` — the
   npm `dsh-0-2-1-alpha-3` vendor dist-tags still point at the alpha vintages

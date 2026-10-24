@@ -18,8 +18,10 @@
  * page all landed on a `forbidden` envelope for ordinary users).
  *
  * The lists below are transcribed from the typert wire registry of DSH
- * 0.2.1-rc.2 (`TypertRemoteMap`, one `'<namespace>/<method>'` key per endpoint,
- * 146 in total). They are a **total, disjoint classification** of that surface:
+ * 0.2.1-rc.3 (`TypertRemoteMap`, one `'<namespace>/<method>'` key per endpoint,
+ * 146 in total — byte-identical to 0.2.1-rc.2's registry; rc.3 touched only the
+ * client UI, so the classification carries over unchanged). They are a **total,
+ * disjoint classification** of that surface:
  *
  *   - {@link USER_ALLOWED}        – per-user, session/agent-scoped features.
  *   - {@link ADMIN_ONLY_METHODS}  – host configuration, credentials, plugin
@@ -39,7 +41,7 @@
 export interface AuthUser { username: string; isAdmin: boolean }
 
 /** DSH release the snapshots in this file were transcribed from. */
-export const WIRE_SURFACE_DSH_VERSION = '0.2.1-rc.2'
+export const WIRE_SURFACE_DSH_VERSION = '0.2.1-rc.3'
 
 /**
  * The user-facing wire surface: every method an ordinary (non-admin) user may

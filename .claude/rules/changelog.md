@@ -1,5 +1,69 @@
 # Memory Changelog
 
+## 2026-10-24 (12:00 scheduled watch) — NEW DSH 0.2.1-rc.3 → adapted + RELEASED 0.3.7
+- Scheduled cron run (`0 12 * * *` Asia/Shanghai, trigger 2026-10-24T04:00Z).
+  Detection (fresh evidence, all three channels):
+  - `git fetch origin --tags --prune` in `E:\code\deepseek-harness`: new tag
+    `dsh-v0.2.1-rc.3` → `1f81c047fc` (2026-10-23 11:29:36 +0800, PR #6999
+    merge); previous tag `dsh-v0.2.1-rc.2` → `687f282e86`. **6 commits**
+    rc.2..rc.3 (release bump `d02ea370ee`; #6944 llm `/models` listing re-home
+    `c48f8523f2`; #6883 nav pins/menu icons `39d2903841`; #6600 analytics
+    tracking `675164957a`; #6247 navigation entry customization
+    `5ff29190ed`). Local `dev` branch still at 687f282e86 (rc.2), dirty only
+    CLAUDE.md + untracked agent dirs.
+  - npm official registry: `@deepseek-ai/dsh` dist-tags
+    `{latest: 0.2.1-rc.2, next: 0.2.1-rc.3, alpha: 0.2.1-alpha.5}`,
+    time.modified 2026-10-23T07:54Z. All ten `@deepseek-ai/dsh-*` devDep
+    peers published at `0.2.1-rc.3` (each verified via `npm view`;
+    `dsh-web-frontend`'s `latest` dist-tag still points at stale
+    `0.0.1-rc.5` — use `next`). Vendored pins unchanged (cordis 4.0.5,
+    schemastery 3.18.5, include 1.0.10, loader 1.0.6); one transitive tool
+    3.1.8 → 3.1.9.
+  - Multi-user re-check: rc.2..rc.3 diff analysis + boot-graph lever intact
+    (`packages/client/modules/src/index.ts` zero diff). No native accounts,
+    no per-identity UI gate; `uiRoleGate` intact; role-based whole-UI gating
+    stays SHIPPED (0.3.0 + 0.3.1) — evaluation closed, unchanged.
+- **Upstream surface (full analysis in `docs/adapt-dsh-0.2.1-rc.3.md`): the
+  whole adapter surface is SOURCE-UNCHANGED.** rc.3 is a client-UI-only
+  release (640 files, mostly tests/snapshots/bumps): NEW `ui-entry-customization`
+  package, ui-sidebar `panel-pins.ts`, ui-sidebar-right `guide-pins.ts`,
+  ui-conversation `view-pins.ts` (+2-line slots.ts), ui-primitives Menu/
+  Tooltip, ui-workspace `navigation.ts`, llm catalog re-home
+  (`llm-deepseek-account` → `llm-deepseek`), product-analytics events. No new
+  wire method or namespace — the api-catalog change is doc strings + a client
+  type `AnalyticsPreset = 'creator'|'ptc'|'minimal'|'standard'`.
+  Mechanically verified: `node scripts/dump-wire-surface.mjs --checkout
+  E:\code\deepseek-harness --version 0.2.1-rc.3` → 146 methods, the ordered
+  method list byte-identical to the committed rc.2 snapshot (Compare-Object
+  diff count 0). No new admin-only community client bundle →
+  `ADMIN_ONLY_UI_PLUGINS` unchanged.
+- **Changes shipped (0.3.7):** `version` 0.3.6 → 0.3.7; 10 dsh-* devDeps
+  `^0.2.1-rc.2` → `^0.2.1-rc.3`. **Own peers unchanged** (the
+  `>=0.2.1-alpha.1 <0.3.0-0` branch already admits rc.3).
+  `src/api-filter.ts`: metadata only — `WIRE_SURFACE_DSH_VERSION = '0.2.1-rc.3'`
+  + header note (classification byte-identical to rc.2's registry; rc.3
+  touched only the client UI). `tests/fixtures/wire-surface.json` regenerated
+  at rc.3 (method list unchanged). **No other source changes** (the
+  `remote-guard.ts:81` "DSH 0.2.1-rc.2 (dsh-login 0.3.6, issue #4)" comment
+  stays — it documents when those namespaces were first listed). dist
+  rebuilt: `dist/client.js` byte-identical; `dist/index.js`/`.map` re-stamp
+  the version constant.
+- **Verification:** baseline `vitest run` **21 files / 267 tests green** on
+  the rc.2 tree BEFORE the retarget (proves rc.3 compatibility of the current
+  code), then again against the rc.3 builds after it — 267/267 both times;
+  `npm run build` exit 0 (`dist/client.js` 37134 chars); `npm run
+  verify:imports` ok.
+- Docs: README/README.zh banner + headline + adaptation history + tracking +
+  evaluation updated (0.3.7 / rc.3, re-verified 2026-10-24; L168/L164
+  "92 of the 146 methods DSH 0.2.1-rc.3 actually exposes"); new
+  `docs/adapt-dsh-0.2.1-rc.3.md`; gotchas.md devDep-pin + dist-restamp notes
+  updated. `docs/PROJECT-INDEX.md` deliberately NOT touched — it is a
+  v0.1.0-era snapshot last updated in August; no release since 0.3.4 has
+  updated it (stale, flagged).
+- Release: commit + tag `v0.3.7` + push; npm publish via the `.env`
+  `NPM_ACCESS_TOKENS` temp-npmrc flow (temp file deleted, token never
+  printed); gh release. *(result recorded after completion)*
+
 ## 2026-10-23 (manual watch) — no new DSH release; 0.3.6 stays current
 - Manual release watch (user-requested, session 2026-10-23T14:48+08:00).
   Detection (fresh evidence, all channels):

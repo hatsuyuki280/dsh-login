@@ -1,5 +1,56 @@
 # Memory Changelog
 
+## 2026-10-25 (12:00 scheduled watch) — no new DSH release; 0.3.7 stays current
+- Scheduled cron run (`0 12 * * *` Asia/Shanghai, trigger 2026-10-25T04:00Z).
+  Detection (fresh evidence, all three channels):
+  - `git fetch origin --tags --prune` in `E:\code\deepseek-harness`: newest tag
+    still `dsh-v0.2.1-rc.3` (→ `1f81c047fc`, 2026-10-23 11:29:36 +0800, PR
+    #6999 merge) — **no new tag** since the 10-24 watch. origin/master tip =
+    `22ddee3792` (2026-10-23 19:48:59 +0800, PR #7075 chatgap merge):
+    **1533 commits beyond the rc.3 tag** — long-running branches merged after
+    the release (liveshare-protocol #6748, desktop-packaging-cache #6675,
+    session-baseline-split #7003, tab-scroll-animation #7054,
+    windows-runner-network-recovery #7057) = unreleased backlog, no release
+    cut. Local `dev` branch still at `687f282e86` (rc.2), dirty only CLAUDE.md
+    + untracked agent dirs.
+  - npm official registry: all 11 `@deepseek-ai/dsh-*` packages in the plugin
+    graph (dsh, host-webserver, host-frontend-static, client-connection,
+    credentials, settings, web-frontend, client-modules, scope, session,
+    brand) still `next=0.2.1-rc.3` with `time.modified` 2026-10-23T07:34–
+    07:55Z — the rc.3 publish window itself; **nothing published since**.
+    `@deepseek-ai/dsh` `latest` stays `0.2.1-rc.2` / `next=0.2.1-rc.3`
+    (`web-frontend`'s `latest` dist-tag still stale at `0.0.1-rc.5` — use
+    `next`). New package `@deepseek-ai/dsh-liveshare-protocol` NOT on npm
+    (registry 404) — no npm-only release either.
+  - Post-rc.3 backlog heads-up for the NEXT release watch (all unreleased at
+    tip): `feat(webserver): add resource routes and in-process readResource`
+    (#6901 — `WebResourceRoute`/`WebResource` types; `renderIndex`/
+    `collectIndexInjections` take a `peer`, `webserver/index-inject` fires
+    `(table, peer)` per `docs/upgrade-guide/v0.2.1-rc.2/webserver-index-peer/`;
+    dsh-login's `index.ts:235` listener consumes only `table` → compatible as
+    a listener; dsh-login does not call `renderIndex`); new
+    `@deepseek-ai/dsh-liveshare-protocol` package; typert default resource
+    resolvers. Verified at the tip: rc.3 itself still emits the one-arg
+    `webserver/index-inject(table)`, so the published runtime is unaffected.
+- Multi-user re-check at `origin/master` (= `22ddee3792`): grep
+  `multi.?user|multiuser|role.?based|\brbac\b` over `packages/ apps/` =
+  **1 hit** — `packages/api/remote-access/README.md` (the authorize-only
+  non-owner-Peer substrate; identical to every watch since alpha.3). No
+  native accounts upstream; dsh-login remains the multi-user layer.
+  `__DSH_BOOT__` boot-graph lever intact
+  (`packages/client/modules/src/index.ts:633`,
+  `rows.push({ kind: 'global', name: '__DSH_BOOT__', value: graph })`) —
+  uiRoleGate intact. Role-based whole-UI gating stays SHIPPED (0.3.0
+  uiRoleGate + 0.3.1 bridge-wall enforcement) — evaluation closed.
+- **Conclusion: no new DSH version (rc.3 remains the newest release, already
+  adapted + released as 0.3.7 yesterday) → no adaptation needed.** dsh-login
+  0.3.7 stays current; peer ranges (`>=0.2.1-alpha.1 <0.3.0-0`) + rc.3
+  devDeps already cover the latest runtime. No code changes → no README fix,
+  no release (release only when a new DSH version requires adaptation).
+- Verification: `npm test` = **21 files / 267 tests green** (5.79 s) on the
+  current tree (commit `15db686`, master == origin/master, clean).
+- Changelog entry committed + pushed per the release-watch convention.
+
 ## 2026-10-24 (12:00 scheduled watch) — NEW DSH 0.2.1-rc.3 → adapted + RELEASED 0.3.7
 - Scheduled cron run (`0 12 * * *` Asia/Shanghai, trigger 2026-10-24T04:00Z).
   Detection (fresh evidence, all three channels):

@@ -229,6 +229,26 @@ npm run build:client   # node scripts/build-client.mjs
 - `defaultWorkspace`（默认开）仍会给每个非管理员在首次 `/api` 访问时备好隔离沙箱，所以并不**必须**用选择器——但现在原生流程也能用了。
 - 若 0.3.7+ 仍返回 `not permitted for this user`，说明该方法不在本版本 wire 面上：看宿主日志里每个方法只报一次的 `dsh-login: /api/<method> was denied …`（其中带目标 DSH 版本），再用 `node scripts/dump-wire-surface.mjs` 重新同步。
 
+### launchToken 引导（`tokenBootstrap`，默认开启）
+
+上游把 GUI URL 拼成 `?token=<进程 launchToken>`，并在 `GET /?token=…` 上铸造
+connection 行的 cookie。由于 `/api` 需要该 cookie，dsh-login 会让刚登录的浏览器再走一次
+同一交换（上游 issue #3），这样新设备无需操作员手动粘贴打印出来的 URL 也能用。
+
+代价需要说明白：**任何已登录的 Web 客户端都能触发这次跳转，并从 `Location` 头里读到进程
+launchToken**；而同一个令牌还能在 `GET /connect?token=…` 交换出 **owner 主体的 API 凭证**。
+该跳转也会把令牌留在该次导航的浏览器历史里。上游的设计是带外交付令牌（由 `dsh web`
+打印，或由派生的 API 客户端继承），并期望重定向把令牌丢掉——所以这是为修 issue #3 而做的
+刻意偏离。
+
+在**本插件自己的威胁模型内**这不算提权：普通用户本来就能通过 `terminal.*` 以宿主用户身份跑
+shell。但如果你托管的是「不该给 host 级访问」的账号，它就会破坏用户模型。此时把
+`tokenBootstrap` 设为 `false`：网关改为直接转发 index 请求，新设备会看到核心的纯文本 401，
+直到操作员打开一次打印出的 `?token=` URL——令牌不再交给 Web 客户端。
+
+这里按背景说明而非漏洞报告：`/connect` 是上游文档化的 API 客户端通路，要彻底消除需要上游
+提供「服务端铸造 browser cookie」的入口，或把令牌按用途拆分作用域。
+
 ## 架构说明：fallback vs prefix /
 
 网关使用 `registerFallback()` 而非 `register({ kind: 'prefix', path: '/' })`，因为 DSH WebServer 的前缀匹配逻辑检查 `pathname.startsWith(prefix + '/')`。当 prefix 为 `/` 时，拼接结果为 `//`，而正常路径不会以 `//` 开头——所以 `prefix /` 路由只能精确匹配 `/` 这一个路径。fallback 处理器能捕获所有未被命名路由匹配的请求，这才是认证网关所需的 catch-all 行为。

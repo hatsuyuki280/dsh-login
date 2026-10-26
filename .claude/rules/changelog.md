@@ -1,5 +1,48 @@
 # Memory Changelog
 
+## 2026-10-26 (12:00 scheduled watch) — no new DSH release; 0.3.7 stays current
+- Scheduled cron run (`0 12 * * *` Asia/Shanghai, trigger 2026-10-26T04:00Z).
+  Detection (fresh evidence, all three channels):
+  - `git fetch origin --tags --prune` in `E:\code\deepseek-harness`: newest tag
+    still `dsh-v0.2.1-rc.3` (→ `1f81c047fc`, PR #6999 merge) — **no new tag**.
+    origin/master tip = `22ddee3792` (PR #7075 chatgap merge) — **byte-identical
+    to the 10-25 watch tip: 0 new commits since yesterday's watch**, still 1533
+    commits beyond the rc.3 tag (unreleased backlog: liveshare-protocol #6748,
+    desktop-packaging-cache #6675, session-baseline-split #7003,
+    tab-scroll-animation #7054, windows-runner-network-recovery #7057). The
+    10-25 post-rc.3 backlog heads-up (webserver resource routes #6901,
+    liveshare-protocol package, typert resolvers) therefore still stands
+    unchanged for the NEXT release watch. Local `dev` branch still at
+    `687f282e86` (rc.2), dirty only CLAUDE.md + untracked agent dirs.
+  - npm official registry: all 11 `@deepseek-ai/dsh-*` packages in the plugin
+    graph (dsh, host-webserver, host-frontend-static, client-connection,
+    credentials, settings, web-frontend, client-modules, scope, session,
+    brand) still `next=0.2.1-rc.3` with `time.modified` 2026-10-23T07:34–
+    07:56Z — the rc.3 publish window itself; **nothing published since**.
+    `@deepseek-ai/dsh` `latest` stays `0.2.1-rc.2` / `next=0.2.1-rc.3`.
+    `@deepseek-ai/dsh-liveshare-protocol` still NOT on npm (registry 404) —
+    no npm-only release either.
+  - Multi-user re-check at `origin/master` (= `22ddee3792`): grep
+    `multi.?user|multiuser|role.?based|\brbac\b` over `packages/ apps/` =
+    **1 hit** — `packages/api/remote-access/README.md` (the authorize-only
+    non-owner-Peer substrate; identical to every watch since alpha.3). No
+    native accounts upstream; dsh-login remains the multi-user layer.
+    `__DSH_BOOT__` boot-graph lever intact
+    (`packages/client/modules/src/index.ts:633`,
+    `rows.push({ kind: 'global', name: '__DSH_BOOT__', value: graph })`) —
+    uiRoleGate intact. Role-based whole-UI gating stays SHIPPED (0.3.0
+    uiRoleGate + 0.3.1 bridge-wall enforcement) — evaluation closed.
+- **Conclusion: no new DSH version (rc.3 remains the newest release, already
+  adapted + released as 0.3.7 on 10-24) → no adaptation needed.** dsh-login
+  0.3.7 stays current; peer ranges (`>=0.2.1-alpha.1 <0.3.0-0`) + rc.3
+  devDeps already cover the latest runtime. No code changes → no README fix,
+  no release (release only when a new DSH version requires adaptation).
+- Verification: `npm test` = **21 files / 267 tests green** (5.94 s) on the
+  current tree (commit `fb302b4`, master == origin/master, clean); the
+  wire-surface live cross-check against the `E:\code\deepseek-harness`
+  checkout passed inside the suite (146-method registry unchanged).
+- Changelog entry committed + pushed per the release-watch convention.
+
 ## 2026-10-25 (12:00 scheduled watch) — no new DSH release; 0.3.7 stays current
 - Scheduled cron run (`0 12 * * *` Asia/Shanghai, trigger 2026-10-25T04:00Z).
   Detection (fresh evidence, all three channels):

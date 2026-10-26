@@ -247,6 +247,34 @@ Diagnosis quick reference: this is almost never the host whitelist (autoTrustHos
 - `defaultWorkspace` (on by default) still gives every non-admin a ready-made isolated sandbox on first `/api` access, so they never *need* the picker — but they can now use the native flow too.
 - If `/api` still answers `not permitted for this user` on 0.3.7+, the method is off this build's wire surface: check the host log for the one-per-method `dsh-login: /api/<method> was denied …` line (it names the DSH version the allow-list targets) and re-sync with `node scripts/dump-wire-surface.mjs`.
 
+### Launch-token bootstrap (`tokenBootstrap`, default on)
+
+Upstream advertises the GUI URL as `?token=<process launchToken>` and mints the
+connection-row cookie on `GET /?token=…`. Because `/api` needs that cookie,
+dsh-login bounces a browser that just signed in through the same exchange
+(upstream issue #3), so a fresh device works without the operator pasting the
+printed URL.
+
+The consequence is worth stating plainly: **any authenticated Web client can
+trigger that bounce and read the process launch token from the `Location`
+header**, and the same token exchanges at `GET /connect?token=…` for an
+**owner-principal API credential**. The bounce also puts the token in browser
+history for that navigation. Upstream's design delivers the token out of band
+(printed by `dsh web`, or inherited by a spawned API client) and expects the
+redirect to drop it, so this is a deliberate deviation in service of issue #3.
+
+It is not an escalation *within this plugin's threat model*: an ordinary user can
+already run shell as the host user through `terminal.*`. It does break the user
+model if you host accounts you would not give host-level access to. In that case
+set `tokenBootstrap: false`: the gateway then forwards the bare index request and
+a fresh device sees the core's plain-text 401 until the printed `?token=` URL is
+opened once, with no token ever handed to the Web client.
+
+Reporting as background rather than as a vulnerability: `/connect` is upstream's
+documented API-client path, and closing the gap properly needs either a
+server-side browser-cookie mint endpoint upstream or a token scoped to just the
+index exchange.
+
 ## Architecture note: fallback vs prefix /
 
 The gateway uses `registerFallback()` (not `register({ kind: 'prefix', path: '/' })`) because the DSH WebServer's prefix matching checks `pathname.startsWith(prefix + '/')`. For prefix `/`, this becomes `//`, which no normal path starts with -- a `prefix /` route only matches the exact path `/`. The fallback handler catches everything no named route claims, which is the correct catch-all behavior for the authentication gateway.

@@ -73,13 +73,14 @@ interface ConnectionAuth {
  * @returns true when the SPA index may be served; false when an upstream
  *   redirect/401 has already been written.
  */
-function createAuthorizeIndex(ctx: Context): (req: IncomingMessage, res: ServerResponse) => boolean {
+function createAuthorizeIndex(ctx: Context, tokenBootstrap: boolean): (req: IncomingMessage, res: ServerResponse) => boolean {
   return (req, res) => {
     const connection = ctx.get('connection') as ConnectionAuth | undefined
     if (connection === undefined) return true
     const auth = connection.browserAuth ?? connection
     const hasTokenParam = req.url !== undefined && /[?&]token=/.test(req.url)
     if (
+      tokenBootstrap &&
       !hasTokenParam &&
       typeof auth.isAuthenticated === 'function' &&
       !auth.isAuthenticated(req) &&
@@ -119,7 +120,7 @@ export function createGatewayHandler(
 ): WebRoute['handler'] {
   const distRoot = dirname(config.distIndex)
   const renderIndex = indexRenderer(ctx, config.distIndex)
-  const authorizeIndex = createAuthorizeIndex(ctx)
+  const authorizeIndex = createAuthorizeIndex(ctx, config.tokenBootstrap)
 
   return async (req: IncomingMessage, res: ServerResponse) => {
     // Non-GET/HEAD without a matching named route is 405 (fallback-only

@@ -64,6 +64,7 @@ const config: Config = {
   distIndex: '/nonexistent/index.html',
   sessionTtl: 3600,
   enabled: true,
+  tokenBootstrap: true,
 }
 
 describe('gateway handler', () => {
@@ -224,7 +225,7 @@ describe('gateway authorizeIndex: core browser-auth handshake (issue #3)', () =>
   }
 
   /** Boot the gateway over a real webserver with a dist shell and a session. */
-  async function bootGateway(fake: FakeConnectionOptions): Promise<{ port: number; token: string }> {
+  async function bootGateway(fake: FakeConnectionOptions, overrides: Partial<typeof config> = {}): Promise<{ port: number; token: string }> {
     const { ctx, port } = await bootServer()
     const dist = join(root!, 'dist')
     await mkdir(dist, { recursive: true })
@@ -232,7 +233,7 @@ describe('gateway authorizeIndex: core browser-auth handshake (issue #3)', () =>
     await writeFile(distIndex, '<html><body>shell</body></html>')
     const store = new SessionStore(3600)
     const session = store.create('alice', true)
-    const handler = createGatewayHandler(ctx, { ...config, distIndex }, store, activeUsers)
+    const handler = createGatewayHandler(ctx, { ...config, ...overrides, distIndex }, store, activeUsers)
     ctx.effect(() => ctx.webServer.registerFallback(handler), 'gateway')
     provideFakeConnection(ctx, fake)
     return { port, token: session.token }
@@ -249,6 +250,22 @@ describe('gateway authorizeIndex: core browser-auth handshake (issue #3)', () =>
     expect(res.status).toBe(302)
     expect(res.headers.get('location')).toBe('/?token=test-launch-token')
     expect(res.headers.get('cache-control')).toBe('no-store')
+  })
+
+  it('does not leak the launch token when tokenBootstrap is off', { timeout: 60_000 }, async () => {
+    // Opt-out for multi-user deployments: the bounce hands the process launch
+    // token to any authenticated Web client, and that same token also exchanges
+    // at /connect for an owner-principal API credential. With the bootstrap
+    // disabled the gateway forwards the bare index request and the core answers
+    // its own 401 instead of redirecting with the token in the URL.
+    const { port, token } = await bootGateway(
+      { coreCookie: false, launchToken: 'test-launch-token' },
+      { tokenBootstrap: false },
+    )
+    const res = await request(port, '/', { headers: { Cookie: `dsh_session=${token}` } })
+    expect(res.status).toBe(401)
+    expect(res.headers.get('location')).toBeNull()
+    expect(JSON.stringify(res.body ?? '')).not.toContain('test-launch-token')
   })
 
   it('lets the forwarded token exchange mint the core cookie', { timeout: 60_000 }, async () => {

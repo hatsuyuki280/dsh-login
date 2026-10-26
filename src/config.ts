@@ -111,6 +111,18 @@ export interface Config {
   loginWindowSeconds: number
   /** Lockout duration, in seconds, once the failure window is full. */
   loginLockoutSeconds: number
+  /**
+   * Bootstrap a fresh browser's connection-row cookie by bouncing it through the
+   * core `GET /?token=<launchToken>` exchange (default true).
+   *
+   * The bounce is what makes a newly signed-in device work (upstream issue #3),
+   * but it hands the *process launch token* to any authenticated Web client, and
+   * that token also exchanges at `GET /connect?token=` for an owner-principal API
+   * credential. Set false when the instance hosts accounts that must not be able
+   * to reach operator-level access; fresh devices then see the core's plain-text
+   * 401 until the printed `?token=` URL is opened once.
+   */
+  tokenBootstrap: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -139,4 +151,5 @@ export const Config: z<Config> = z.object({
   loginMaxAttempts: z.natural().min(1).default(10),
   loginWindowSeconds: z.natural().min(1).default(300),
   loginLockoutSeconds: z.natural().default(300),
+  tokenBootstrap: z.boolean().default(true),
 })

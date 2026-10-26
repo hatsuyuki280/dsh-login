@@ -1,4 +1,5 @@
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
+import { promisify } from 'node:util'
 import type { CredentialProvider, CredentialRef } from '@deepseek-ai/dsh-credentials'
 
 /** scrypt cost parameters. `N` must be a power of two. */
@@ -40,19 +41,30 @@ const KEY_LEN = 64
 
 /**
  * Derive one password digest from a plaintext, a hex salt and cost parameters.
- * Injectable so tests can count derivations or substitute cheap parameters
- * instead of measuring wall clock.
+ * Asynchronous on purpose: the KDF costs tens to hundreds of milliseconds and
+ * runs on the unauthenticated login path, so it must never block the event
+ * loop that also serves the GUI and agent sessions (issue #5). Injectable so
+ * tests can count derivations or substitute cheap parameters.
  */
-export type PasswordHasher = (password: string, saltHex: string, params: ScryptParams) => string
+export type PasswordHasher = (password: string, saltHex: string, params: ScryptParams) => Promise<string>
 
-/** Default hasher: scrypt with explicit, recorded cost parameters. */
-const scryptPassword: PasswordHasher = (password, saltHex, params) =>
-  scryptSync(password, Buffer.from(saltHex, 'hex'), KEY_LEN, {
+const scryptAsync = promisify(scrypt) as (
+  password: string,
+  salt: Buffer,
+  keylen: number,
+  options: { N: number; r: number; p: number; maxmem: number },
+) => Promise<Buffer>
+
+/** Default hasher: asynchronous scrypt with explicit, recorded cost parameters. */
+const scryptPassword: PasswordHasher = async (password, saltHex, params) => {
+  const digest = await scryptAsync(password, Buffer.from(saltHex, 'hex'), KEY_LEN, {
     N: params.N,
     r: params.r,
     p: params.p,
     maxmem: Math.max(SCRYPT_MAXMEM_FLOOR, 256 * params.N * params.r),
-  }).toString('hex')
+  })
+  return digest.toString('hex')
+}
 
 /** Whether `a` costs at least as much as `b` on every axis that matters. */
 function atLeastAsStrong(a: ScryptParams, b: ScryptParams): boolean {
@@ -118,7 +130,7 @@ export class UserStore {
     if (records.some(u => u.username === username)) throw new Error(`user "${username}" already exists`)
     const salt = randomBytes(16).toString('hex')
     const record: UserRecord = {
-      username, salt, hash: this.hasher(password, salt, this.policy), kdf: { ...this.policy },
+      username, salt, hash: await this.hasher(password, salt, this.policy), kdf: { ...this.policy },
       isAdmin: records.length === 0 ? true : isAdmin,
       createdAt: Date.now(),
     }
@@ -139,7 +151,7 @@ export class UserStore {
     // the policy never locks an existing account out; unknown users derive at
     // the current policy, keeping a miss as expensive as a hit.
     const params = target.kdf ?? LEGACY_SCRYPT_PARAMS
-    const matches = constantTimeEqualHex(this.hasher(password, target.salt, params), target.hash)
+    const matches = constantTimeEqualHex(await this.hasher(password, target.salt, params), target.hash)
     if (record === undefined || record.disabled === true || !matches) return undefined
     // Lazy migration: a hash below the current policy is rewritten now, so the
     // cost can be raised without asking an administrator to reset passwords.
@@ -159,7 +171,7 @@ export class UserStore {
     if (current === undefined) return
     const salt = randomBytes(16).toString('hex')
     current.salt = salt
-    current.hash = this.hasher(password, salt, this.policy)
+    current.hash = await this.hasher(password, salt, this.policy)
     current.kdf = { ...this.policy }
     await this.credentials.set(this.ref, JSON.stringify(records))
   }
@@ -195,7 +207,7 @@ export class UserStore {
     const record = records.find(u => u.username === username)
     if (record === undefined) throw new Error(`unknown user "${username}"`)
     record.salt = randomBytes(16).toString('hex')
-    record.hash = this.hasher(password, record.salt, this.policy)
+    record.hash = await this.hasher(password, record.salt, this.policy)
     record.kdf = { ...this.policy }
     await this.credentials.set(this.ref, JSON.stringify(records))
   }

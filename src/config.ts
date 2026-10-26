@@ -105,6 +105,12 @@ export interface Config {
   scryptR: number
   /** scrypt parallelization p for password hashing. */
   scryptP: number
+  /** Failed logins allowed per username/source inside the window before a lockout. */
+  loginMaxAttempts: number
+  /** Sliding window, in seconds, that login failures are counted over. */
+  loginWindowSeconds: number
+  /** Lockout duration, in seconds, once the failure window is full. */
+  loginLockoutSeconds: number
 }
 
 export const Config: z<Config> = z.object({
@@ -130,4 +136,7 @@ export const Config: z<Config> = z.object({
   scryptN: z.natural().min(1024).default(16384),
   scryptR: z.natural().min(1).default(8),
   scryptP: z.natural().min(1).default(1),
+  loginMaxAttempts: z.natural().min(1).default(10),
+  loginWindowSeconds: z.natural().min(1).default(300),
+  loginLockoutSeconds: z.natural().default(300),
 })

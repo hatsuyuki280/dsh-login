@@ -15,6 +15,7 @@ import { UserStore } from '../src/users.ts'
 import { createLoginHandler, createLogoutHandler, createLogoutRedirectHandler, createSetupHandler } from '../src/login-api.ts'
 import { COOKIE_NAME, extractSessionToken } from '../src/auth.ts'
 import { TrustedHosts } from '../src/hosts.ts'
+import { LoginThrottle } from '../src/rate-limit.ts'
 
 let root: string | undefined
 let context: Context | undefined
@@ -88,10 +89,10 @@ async function postJsonWithHost(port: number, host: string, path: string, body: 
 }
 
 /** Register login/logout/setup/admin-free routes exactly like src/index.ts does. */
-async function registerAuthRoutes(ctx: Context, users: UserStore, store: SessionStore, opts?: { hosts?: TrustedHosts; autoTrust?: boolean }): Promise<void> {
+async function registerAuthRoutes(ctx: Context, users: UserStore, store: SessionStore, opts?: { hosts?: TrustedHosts; autoTrust?: boolean; throttle?: LoginThrottle }): Promise<void> {
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact', path: '/api/auth/login',
-    handler: createLoginHandler({ users, store, sessionTtl: 3600, hosts: opts?.hosts, autoTrust: opts?.autoTrust }),
+    handler: createLoginHandler({ users, store, sessionTtl: 3600, hosts: opts?.hosts, autoTrust: opts?.autoTrust, throttle: opts?.throttle }),
   }), 'login')
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact', path: '/api/auth/logout',
@@ -103,7 +104,7 @@ async function registerAuthRoutes(ctx: Context, users: UserStore, store: Session
   }), 'logout redirect')
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact', path: '/api/auth/setup',
-    handler: createSetupHandler({ users, store, sessionTtl: 3600 }),
+    handler: createSetupHandler({ users, store, sessionTtl: 3600, throttle: opts?.throttle }),
   }), 'setup')
 }
 
@@ -303,5 +304,72 @@ describe('GET /logout', () => {
     const res = await fetch(`http://127.0.0.1:${String(port)}/logout`, { redirect: 'manual' })
     expect(res.status).toBe(302)
     expect(res.headers.get('location')).toBe('/login')
+  })
+})
+
+describe('login rate limiting (issue #5)', () => {
+  const policy = { maxAttempts: 3, windowMs: 60_000, lockoutMs: 30_000 }
+
+  it('answers 429 with Retry-After once the failure budget is spent', { timeout: 60_000 }, async () => {
+    const { ctx, port, users } = await bootWithCreds()
+    await users.create('alice', 's3cret', true)
+    const throttle = new LoginThrottle(policy)
+    await registerAuthRoutes(ctx, users, new SessionStore(3600), { throttle })
+
+    for (let i = 0; i < policy.maxAttempts; i += 1) {
+      const res = await postJson(port, '/api/auth/login', { username: 'alice', password: 'wrong' })
+      expect(res.status).toBe(401)
+    }
+
+    const blocked = await postJson(port, '/api/auth/login', { username: 'alice', password: 'wrong' })
+    expect(blocked.status).toBe(429)
+    expect(blocked.json).toEqual({ error: 'too many attempts' })
+    const retryAfter = blocked.headers.get('retry-after')
+    expect(retryAfter).not.toBeNull()
+    expect(Number(retryAfter)).toBeGreaterThan(0)
+  })
+
+  it('rejects a locked account before spending a derivation', { timeout: 60_000 }, async () => {
+    const { ctx, port, users } = await bootWithCreds()
+    await users.create('alice', 's3cret', true)
+    const throttle = new LoginThrottle(policy)
+    await registerAuthRoutes(ctx, users, new SessionStore(3600), { throttle })
+
+    // Simulate an already-exhausted budget without issuing the requests.
+    for (let i = 0; i < policy.maxAttempts; i += 1) throttle.fail(['u:alice', `s:127.0.0.1`])
+    const started = Date.now()
+    const res = await postJson(port, '/api/auth/login', { username: 'alice', password: 'wrong' })
+    expect(res.status).toBe(429)
+    // No scrypt derivation happened: the response is far below the KDF cost.
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+
+  it('clears the counter after a successful login', { timeout: 60_000 }, async () => {
+    const { ctx, port, users } = await bootWithCreds()
+    await users.create('alice', 's3cret', true)
+    const throttle = new LoginThrottle(policy)
+    await registerAuthRoutes(ctx, users, new SessionStore(3600), { throttle })
+
+    for (let i = 0; i < policy.maxAttempts - 1; i += 1) {
+      await postJson(port, '/api/auth/login', { username: 'alice', password: 'wrong' })
+    }
+    expect((await postJson(port, '/api/auth/login', { username: 'alice', password: 's3cret' })).status).toBe(200)
+    // The budget is fresh again, so two more failures must still be 401.
+    expect((await postJson(port, '/api/auth/login', { username: 'alice', password: 'wrong' })).status).toBe(401)
+    expect((await postJson(port, '/api/auth/login', { username: 'alice', password: 'wrong' })).status).toBe(401)
+  })
+
+  it('throttles repeated first-run setup attempts by peer', { timeout: 60_000 }, async () => {
+    const { ctx, port, users } = await bootWithCreds()
+    const throttle = new LoginThrottle(policy)
+    await registerAuthRoutes(ctx, users, new SessionStore(3600), { throttle })
+
+    // Empty password is rejected before creation; each rejection is a failure.
+    for (let i = 0; i < policy.maxAttempts; i += 1) {
+      const res = await postJson(port, '/api/auth/setup', { username: 'admin', password: '' })
+      expect(res.status).toBe(400)
+    }
+    const blocked = await postJson(port, '/api/auth/setup', { username: 'admin', password: '' })
+    expect(blocked.status).toBe(429)
   })
 })

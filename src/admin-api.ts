@@ -38,6 +38,12 @@ export interface AdminDeps {
    * account is disabled or removed, not when the cookie expires.
    */
   userLookup?: UserLookup
+  /**
+   * Fired after any account mutation. The user lookup caches its snapshot for
+   * a second, so a create/remove/disable/password change must drop it or the
+   * caller keeps seeing the previous state.
+   */
+  onUsersChanged?: () => void
 }
 
 /** Resolve the live session from the request cookie, if any. */
@@ -130,6 +136,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
     } catch {
       return sendJson(res, 400, { error: 'bad request' })
     }
+    deps.onUsersChanged?.()
     return sendJson(res, 201, { ok: true })
   } }
 
@@ -151,6 +158,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
     // A password change must force re-login with the new password: revoke
     // the user's live cookie sessions so old cookies stop working.
     await deps.store.revokeAllForDurably(username)
+    deps.onUsersChanged?.()
     return sendJson(res, 200, { ok: true })
   } }
 
@@ -166,6 +174,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
       return sendJson(res, 409, { error: 'cannot remove the last admin' })
     }
     await deps.users.remove(target)
+    deps.onUsersChanged?.()
     // The removed user must lose access immediately: revoke their live
     // cookie sessions so a stale cookie cannot ride out the TTL.
     await deps.store.revokeAllForDurably(target)
@@ -219,6 +228,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
       return sendJson(res, 409, { error: 'cannot disable the last enabled admin' })
     }
     await deps.users.setDisabled(target, body.disabled)
+    deps.onUsersChanged?.()
     // Disabling must bite immediately: revoke the user's live cookie
     // sessions so a stale cookie cannot ride out the TTL.
     if (body.disabled) await deps.store.revokeAllForDurably(target)

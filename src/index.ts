@@ -169,9 +169,15 @@ export function apply(ctx: Context, config: Config): void {
     userCache = { at: Date.now(), byName: new Map(records.map(record => [record.username, record])) }
     return userCache.byName
   }
+  /** Drop the snapshot so the next verification re-reads the account store. */
+  const invalidateUsers = (): void => { userCache = undefined }
   const userLookup: import('./session.ts').UserLookup = async (username) => {
     const fresh = userCache !== undefined && Date.now() - userCache.at < 1_000
-    const byName = fresh ? userCache!.byName : await refreshUsers()
+    let byName = fresh ? userCache!.byName : await refreshUsers()
+    // A miss inside the cache window can simply mean the account was created
+    // after the snapshot was taken (an admin creating a user, then that user
+    // signing in immediately). Re-read once before refusing the session.
+    if (!byName.has(username)) byName = await refreshUsers()
     return byName.get(username)
   }
   const gatewayHandler = createGatewayHandler(ctx, gatewayConfig, store, userLookup)
@@ -199,7 +205,7 @@ export function apply(ctx: Context, config: Config): void {
     path: '/logout',
     handler: createLogoutRedirectHandler(store),
   }), 'dsh-login: /logout')
-  for (const route of createAdminRoutes({ users, store, hosts, defaultWorkspaceSetting, remoteWebUiSetting, remoteWebUiCompat, userLookup, onRemoteWebUiApply: (enabled) => applyWithRetry(remoteWebUiCompat, enabled, config.remoteWebUiPublicBaseUrl, 3, 50) })) {
+  for (const route of createAdminRoutes({ users, store, hosts, defaultWorkspaceSetting, remoteWebUiSetting, remoteWebUiCompat, userLookup, onUsersChanged: invalidateUsers, onRemoteWebUiApply: (enabled) => applyWithRetry(remoteWebUiCompat, enabled, config.remoteWebUiPublicBaseUrl, 3, 50) })) {
     ctx.effect(() => ctx.webServer.register(route), `dsh-login: ${route.path}`)
   }
   // Boot-time application of the remote-web-ui compatibility toggle. Deferred

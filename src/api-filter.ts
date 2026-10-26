@@ -125,10 +125,14 @@ export const USER_ALLOWED: ReadonlySet<string> = new Set([
   // `directoryPicker.*` is the "add workspace" directory chooser
   // (`ui-workspace/src/client/navigation.ts`), i.e. issue #4 symptom 1. It is
   // admitted because the capability class is already open to ordinary users
-  // (`terminal.*` runs shell as the same system user), and because the
-  // dangerous half — registering the picked directory — stays guarded:
-  // `workspace.create` is confined to the caller's sandbox by the workspace
-  // mutation guard, so a pick outside it is rejected at that call, not here.
+  // (`terminal.*` runs shell as the same system user).
+  //
+  // NOTE: `workspace.create` is NOT sandbox-confined. The 0.3.0 option-A
+  // rewrite removed the ApiProxy that used to own a workspace mutation guard,
+  // and the harness's own `workspaceController.create()` registers whatever
+  // path the caller sends. An ordinary user can therefore register any
+  // directory the service user can reach — the same class of access that
+  // `terminal.*` already gives them, but not a separate guard.
   'commands.execute', 'commands.list',
   'directoryPicker.createDirectory', 'directoryPicker.list', 'directoryPicker.pick',
   // ── attachments, references, feedback, telemetry ──────────────────────────

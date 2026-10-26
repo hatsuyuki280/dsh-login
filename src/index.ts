@@ -89,7 +89,11 @@ export function apply(ctx: Context, config: Config): void {
   // invalidated every cookie on reload). Tokens live in <dataDir>/sessions.json
   // (0o600). Session TTL still applies on load, so stale records are dropped.
   const store = new SessionStore(config.sessionTtl, join(dataDir, 'sessions.json'))
-  const users = new UserStore(ctx.credentials, credentialRef(`${config.password}_USERS`))
+  const users = new UserStore(
+    ctx.credentials,
+    credentialRef(`${config.password}_USERS`),
+    { N: config.scryptN, r: config.scryptR, p: config.scryptP },
+  )
   const ownership = new OwnershipIndex(join(dataDir, 'ownership.json'))
   const hosts = new TrustedHosts(join(dataDir, 'trusted-hosts.json'))
   // Live + persisted "默认用户工作空间" toggle: starts from config.defaultWorkspace

@@ -99,6 +99,12 @@ export interface Config {
    * user gets the complete boot graph as before.
    */
   uiRoleGate: boolean
+  /** scrypt work factor N for password hashing (power of two, >= 1024). */
+  scryptN: number
+  /** scrypt block size r for password hashing. */
+  scryptR: number
+  /** scrypt parallelization p for password hashing. */
+  scryptP: number
 }
 
 export const Config: z<Config> = z.object({
@@ -117,4 +123,11 @@ export const Config: z<Config> = z.object({
   quietDenials: z.boolean().default(true),
   apiBridgeAuth: z.boolean().default(true),
   uiRoleGate: z.boolean().default(true),
+  // Node's historical scrypt defaults. Raise to OWASP's floor
+  // (N=131072, r=8, p=1 — 128 MiB, roughly 10x the CPU cost) once login
+  // rate limiting from issue #5 is in place; existing hashes are upgraded
+  // lazily on their next successful login, so no password reset is needed.
+  scryptN: z.natural().min(1024).default(16384),
+  scryptR: z.natural().min(1).default(8),
+  scryptP: z.natural().min(1).default(1),
 })

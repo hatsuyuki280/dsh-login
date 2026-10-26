@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { UserStore } from '../src/users.ts'
@@ -72,5 +73,71 @@ describe('UserStore', () => {
     await store.create('alice', 'pw', true)
     await store.remove('alice')
     expect(await store.isEmpty()).toBe(true)
+  })
+})
+
+describe('UserStore verify work equalization (no username timing oracle)', () => {
+  /**
+   * Store whose hasher counts derivations. Counting is a deterministic proxy
+   * for the KDF cost: if a miss derives zero times while a hit derives once,
+   * the wall-clock difference is exactly what an attacker measures.
+   */
+  function makeCountingStore(): { store: UserStore; derivations: () => number } {
+    const creds = new MemoryCredentials()
+    let count = 0
+    const hasher = (password: string, saltHex: string): string => {
+      count += 1
+      return createHash('sha256').update(`${saltHex}:${password}`).digest('hex')
+    }
+    return { store: new UserStore(creds as never, ref, hasher), derivations: () => count }
+  }
+
+  it('derives exactly once for an unknown username', async () => {
+    const { store, derivations } = makeCountingStore()
+    await store.create('alice', 'pw')
+    const before = derivations()
+    expect(await store.verify('nobody', 'x')).toBeUndefined()
+    expect(derivations() - before).toBe(1)
+  })
+
+  it('derives exactly once for a wrong password', async () => {
+    const { store, derivations } = makeCountingStore()
+    await store.create('alice', 'pw')
+    const before = derivations()
+    expect(await store.verify('alice', 'wrong')).toBeUndefined()
+    expect(derivations() - before).toBe(1)
+  })
+
+  it('derives exactly once for a correct password', async () => {
+    const { store, derivations } = makeCountingStore()
+    await store.create('alice', 'pw')
+    const before = derivations()
+    expect((await store.verify('alice', 'pw'))?.username).toBe('alice')
+    expect(derivations() - before).toBe(1)
+  })
+
+  it('derives exactly once for a disabled account', async () => {
+    const { store, derivations } = makeCountingStore()
+    await store.create('alice', 'pw')
+    await store.setDisabled('alice', true)
+    const before = derivations()
+    expect(await store.verify('alice', 'pw')).toBeUndefined()
+    expect(derivations() - before).toBe(1)
+  })
+
+  it('spends the same work on unknown, disabled and wrong-password attempts', async () => {
+    const { store, derivations } = makeCountingStore()
+    await store.create('alice', 'pw')
+    await store.create('bob', 'pw')
+    await store.setDisabled('bob', true)
+
+    const delta = async (username: string, password: string): Promise<number> => {
+      const before = derivations()
+      await store.verify(username, password)
+      return derivations() - before
+    }
+
+    expect(await delta('nobody', 'x')).toBe(await delta('alice', 'wrong'))
+    expect(await delta('bob', 'pw')).toBe(await delta('alice', 'wrong'))
   })
 })

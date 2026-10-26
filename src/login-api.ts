@@ -16,6 +16,7 @@ import type { UserStore } from './users.ts'
 import type { TrustedHosts } from './hosts.ts'
 import { readBody, sendJson } from './http-json.ts'
 import { buildCookieHeader, buildClearCookieHeader, extractSessionToken } from './auth.ts'
+import type { LoginThrottle } from './rate-limit.ts'
 
 /** Shared dependencies for the login/setup handlers. */
 export interface LoginDeps {
@@ -27,6 +28,12 @@ export interface LoginDeps {
   hosts?: TrustedHosts
   /** Whether auto-learning a successful login's Host is enabled (config.autoTrustHosts). */
   autoTrust?: boolean
+  /**
+   * Failed-attempt limiter, consulted before the KDF runs. Optional so a
+   * composition without it keeps working; omitting it restores the pre-#5
+   * behaviour (unlimited attempts).
+   */
+  throttle?: LoginThrottle
 }
 
 /** Parse and validate a `{username, password}` JSON body; null on bad input. */
@@ -54,6 +61,23 @@ function learnRequestHost(req: IncomingMessage, hosts: TrustedHosts): void {
 }
 
 /**
+ * The throttle keys one attempt is accounted against: the submitted username
+ * (guessing one account) and the TCP peer (cycling usernames from one client).
+ * The peer address is used as-is: forwarded headers are caller-controlled and
+ * are never trusted here.
+ */
+function throttleKeys(req: IncomingMessage, username: string): string[] {
+  const source = req.socket.remoteAddress ?? 'unknown'
+  return [`u:${username}`, `s:${source}`]
+}
+
+/** Answer 429 with a `Retry-After` the client can honour. */
+function sendTooManyAttempts(res: ServerResponse, retryAfterMs: number): void {
+  res.setHeader('Retry-After', String(Math.max(1, Math.ceil(retryAfterMs / 1000))))
+  sendJson(res, 429, { error: 'too many attempts' })
+}
+
+/**
  * Create the POST /api/auth/login handler. Verifies `{username, password}`
  * against the UserStore and, on match, creates a session and sets the
  * cookie. 401 on invalid credentials; 500 while no user exists (setup mode).
@@ -69,11 +93,21 @@ export function createLoginHandler(deps: LoginDeps): WebRoute['handler'] {
       sendJson(res, 500, { error: 'no users configured' })
       return
     }
+    // Reject before the KDF: a locked key must not still cost a derivation,
+    // otherwise the limiter itself becomes the denial-of-service primitive.
+    const keys = throttleKeys(req, creds.username)
+    const verdict = deps.throttle?.check(keys)
+    if (verdict !== undefined && !verdict.allowed) {
+      sendTooManyAttempts(res, verdict.retryAfterMs)
+      return
+    }
     const record = await deps.users.verify(creds.username, creds.password)
     if (record === undefined) {
+      deps.throttle?.fail(keys)
       sendJson(res, 401, { error: 'invalid credentials' })
       return
     }
+    deps.throttle?.succeed(keys)
     // Best-effort audit stamp (shown in 设置-用户管理): never fail a
     // verified login over it.
     await deps.users.touchLastLogin(record.username).catch(() => {})
@@ -120,6 +154,14 @@ export function createLogoutRedirectHandler(store: SessionStore): WebRoute['hand
  */
 export function createSetupHandler(deps: LoginDeps): WebRoute['handler'] {
   return async (req: IncomingMessage, res: ServerResponse) => {
+    // First-run account creation is unauthenticated by design, so it is
+    // throttled by peer before anything else (issue #5).
+    const sourceKey = `s:${req.socket.remoteAddress ?? 'unknown'}`
+    const verdict = deps.throttle?.check([sourceKey])
+    if (verdict !== undefined && !verdict.allowed) {
+      sendTooManyAttempts(res, verdict.retryAfterMs)
+      return
+    }
     // Security gate: only allow setup while the user store is empty.
     if (!(await deps.users.isEmpty())) {
       sendJson(res, 403, { error: 'users already exist' })
@@ -127,6 +169,9 @@ export function createSetupHandler(deps: LoginDeps): WebRoute['handler'] {
     }
     const creds = await parseCredentials(req)
     if (creds === null || creds.password.length === 0) {
+      // A malformed attempt still consumes the peer's budget: otherwise an
+      // unauthenticated caller can hammer this route for free.
+      deps.throttle?.fail([sourceKey])
       sendJson(res, 400, { error: 'bad request' })
       return
     }
@@ -135,6 +180,7 @@ export function createSetupHandler(deps: LoginDeps): WebRoute['handler'] {
       // First account is always the forced admin.
       record = await deps.users.create(creds.username, creds.password, true)
     } catch {
+      deps.throttle?.fail([sourceKey])
       sendJson(res, 400, { error: 'bad request' })
       return
     }

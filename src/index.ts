@@ -21,6 +21,7 @@ import { DefaultWorkspaceProvisioner, type WorkspaceRegistryLike } from './provi
 import { createHostSessionApi, createHostSessionSource, tryGetService } from './host-session-access.ts'
 import { probeOwnedSessionIds } from './bridge-list-filter.ts'
 import { createLoginHandler, createLogoutHandler, createLogoutRedirectHandler, createSetupHandler } from './login-api.ts'
+import { LoginThrottle } from './rate-limit.ts'
 import { createAdminRoutes } from './admin-api.ts'
 import { renderLoginPage, renderSetupPage } from './login-page.ts'
 import { provideWebRuntime, resolveDistIndex } from './web-runtime.ts'
@@ -112,7 +113,14 @@ export function apply(ctx: Context, config: Config): void {
   })
   const distIndex = config.distIndex === '' ? resolveDistIndex() : config.distIndex
   const gatewayConfig = { ...config, distIndex }
-  const loginDeps = { users, store, sessionTtl: config.sessionTtl, hosts, autoTrust: config.autoTrustHosts }
+  // Failed-attempt throttle in front of the KDF (issue #5). Shared by the
+  // login and setup handlers; the policy is configurable per deployment.
+  const throttle = new LoginThrottle({
+    maxAttempts: config.loginMaxAttempts,
+    windowMs: config.loginWindowSeconds * 1000,
+    lockoutMs: config.loginLockoutSeconds * 1000,
+  })
+  const loginDeps = { users, store, sessionTtl: config.sessionTtl, hosts, autoTrust: config.autoTrustHosts, throttle }
 
   // Capture the webRuntime LAN literals so the /api takeover trusts the
   // bound LAN addresses automatically (the shipped connection row read them

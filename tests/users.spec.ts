@@ -85,7 +85,7 @@ describe('UserStore verify work equalization (no username timing oracle)', () =>
   function makeCountingStore(): { store: UserStore; derivations: () => number } {
     const creds = new MemoryCredentials()
     let count = 0
-    const hasher = (password: string, saltHex: string): string => {
+    const hasher = async (password: string, saltHex: string): Promise<string> => {
       count += 1
       return createHash('sha256').update(`${saltHex}:${password}`).digest('hex')
     }

@@ -4,7 +4,7 @@ import { dirname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { serveStatic } from '@deepseek-ai/dsh-host-frontend-static'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { SessionStore } from './session.ts'
+import type { SessionStore, UserLookup } from './session.ts'
 import { extractSessionToken } from './auth.ts'
 import { applyUiGate } from './ui-gate.ts'
 import type { Config } from './config.ts'
@@ -115,6 +115,7 @@ export function createGatewayHandler(
   ctx: Context,
   config: Config,
   store: SessionStore,
+  userLookup: UserLookup,
 ): WebRoute['handler'] {
   const distRoot = dirname(config.distIndex)
   const renderIndex = indexRenderer(ctx, config.distIndex)
@@ -129,7 +130,7 @@ export function createGatewayHandler(
       return
     }
     const token = extractSessionToken(req.headers.cookie)
-    const session = token === undefined ? undefined : store.verify(token)
+    const session = token === undefined ? undefined : await store.verifyActive(token, userLookup)
     if (session === undefined) {
       res.writeHead(302, { Location: '/login' })
       res.end()

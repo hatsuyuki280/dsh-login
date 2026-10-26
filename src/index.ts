@@ -159,7 +159,22 @@ export function apply(ctx: Context, config: Config): void {
     },
   }
 
-  const gatewayHandler = createGatewayHandler(ctx, gatewayConfig, store)
+  // Live account lookup for session revalidation (issue #8). A short cache keeps
+  // it off the hot path: every admitted request revalidates, but the credential
+  // document is re-read at most once a second, and every admin mutation below
+  // refreshes it explicitly.
+  let userCache: { at: number; byName: Map<string, import('./users.ts').UserRecord> } | undefined
+  const refreshUsers = async (): Promise<Map<string, import('./users.ts').UserRecord>> => {
+    const records = await users.list()
+    userCache = { at: Date.now(), byName: new Map(records.map(record => [record.username, record])) }
+    return userCache.byName
+  }
+  const userLookup: import('./session.ts').UserLookup = async (username) => {
+    const fresh = userCache !== undefined && Date.now() - userCache.at < 1_000
+    const byName = fresh ? userCache!.byName : await refreshUsers()
+    return byName.get(username)
+  }
+  const gatewayHandler = createGatewayHandler(ctx, gatewayConfig, store, userLookup)
 
   ctx.effect(() => ctx.webServer.register(loginPageRoute), 'dsh-login: /login')
   ctx.effect(() => ctx.webServer.register({
@@ -184,7 +199,7 @@ export function apply(ctx: Context, config: Config): void {
     path: '/logout',
     handler: createLogoutRedirectHandler(store),
   }), 'dsh-login: /logout')
-  for (const route of createAdminRoutes({ users, store, hosts, defaultWorkspaceSetting, remoteWebUiSetting, remoteWebUiCompat, onRemoteWebUiApply: (enabled) => applyWithRetry(remoteWebUiCompat, enabled, config.remoteWebUiPublicBaseUrl, 3, 50) })) {
+  for (const route of createAdminRoutes({ users, store, hosts, defaultWorkspaceSetting, remoteWebUiSetting, remoteWebUiCompat, userLookup, onRemoteWebUiApply: (enabled) => applyWithRetry(remoteWebUiCompat, enabled, config.remoteWebUiPublicBaseUrl, 3, 50) })) {
     ctx.effect(() => ctx.webServer.register(route), `dsh-login: ${route.path}`)
   }
   // Boot-time application of the remote-web-ui compatibility toggle. Deferred
@@ -229,6 +244,7 @@ export function apply(ctx: Context, config: Config): void {
         quietDenials: config.quietDenials,
         ownedProvider,
         provisioner,
+        userLookup,
         onUnknownMethod: reportUnknownMethod,
       }), { global: true }),
       'dsh-login: /api bridge auth wall',

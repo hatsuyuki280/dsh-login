@@ -1,4 +1,7 @@
 import { writeFileSync } from 'node:fs'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from '../src/session.ts'
 import { tmpFile } from './helpers.ts'
@@ -172,5 +175,104 @@ describe('SessionStore persistence', () => {
     expect(store.verify('anything')).toBeUndefined()
     const s = store.create('alice', false)
     expect(store.verify(s.token)).toBeDefined()
+  })
+})
+
+describe('SessionStore durable revocation and live account revalidation (issue #8)', () => {
+  const active = async (): Promise<{ disabled?: boolean } | undefined> => ({})
+  const disabled = async (): Promise<{ disabled?: boolean } | undefined> => ({ disabled: true })
+  const gone = async (): Promise<{ disabled?: boolean } | undefined> => undefined
+  const broken = async (): Promise<{ disabled?: boolean } | undefined> => { throw new Error('credentials unreadable') }
+
+  async function withFile<T>(run: (store: SessionStore, path: string) => Promise<T>): Promise<T> {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-login-session-'))
+    const path = join(dir, 'sessions.json')
+    try {
+      return await run(new SessionStore(3600, path), path)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  const readTokens = async (path: string): Promise<Array<{ token: string }>> => {
+    const raw = await readFile(path, 'utf8')
+    return JSON.parse(raw) as Array<{ token: string }>
+  }
+
+  it('persists a revocation before revokeAllForDurably resolves', async () => {
+    await withFile(async (store, path) => {
+      const a = store.create('alice', true)
+      const b = store.create('alice', true)
+      await store.flush()
+      expect((await readTokens(path)).map(e => e.token).sort()).toEqual([a.token, b.token].sort())
+
+      const removed = await store.revokeAllForDurably('alice')
+      expect(removed).toBe(2)
+      // The file is authoritative again immediately: a crash here cannot
+      // resurrect the revoked cookies on the next boot.
+      expect(await readTokens(path)).toEqual([])
+    })
+  })
+
+  it('persists a single-token revocation before revokeDurably resolves', async () => {
+    await withFile(async (store, path) => {
+      const session = store.create('alice', true)
+      await store.flush()
+      expect(await store.revokeDurably(session.token)).toBe(true)
+      expect(await readTokens(path)).toEqual([])
+    })
+  })
+
+  it('writes atomically, so a reader never sees a truncated file', async () => {
+    await withFile(async (store, path) => {
+      store.create('alice', true)
+      await store.flush()
+      // No temp file is left behind and the payload parses.
+      const entries = await readdir(join(path, '..'))
+      expect(entries).toEqual(['sessions.json'])
+      expect(JSON.parse(await readFile(path, 'utf8'))).toHaveLength(1)
+    })
+  })
+
+  it('accepts a session whose account is still active', async () => {
+    await withFile(async (store) => {
+      const session = store.create('alice', true)
+      expect(await store.verifyActive(session.token, active)).toMatchObject({ user: 'alice' })
+    })
+  })
+
+  it('rejects and drops the session of a disabled account', async () => {
+    await withFile(async (store, path) => {
+      const session = store.create('alice', true)
+      await store.flush()
+      expect(await store.verifyActive(session.token, disabled)).toBeUndefined()
+      expect(store.verify(session.token)).toBeUndefined()
+      expect(await readTokens(path)).toEqual([])
+    })
+  })
+
+  it('rejects and drops the session of a removed account', async () => {
+    await withFile(async (store, path) => {
+      const session = store.create('alice', true)
+      await store.flush()
+      expect(await store.verifyActive(session.token, gone)).toBeUndefined()
+      expect(await readTokens(path)).toEqual([])
+    })
+  })
+
+  it('fails closed when the account store cannot be read', async () => {
+    await withFile(async (store) => {
+      const session = store.create('alice', true)
+      expect(await store.verifyActive(session.token, broken)).toBeUndefined()
+    })
+  })
+
+  it('leaves an unknown token undefined without consulting the lookup', async () => {
+    await withFile(async (store) => {
+      let called = 0
+      const lookup = async (): Promise<{ disabled?: boolean }> => { called += 1; return {} }
+      expect(await store.verifyActive('not-a-token', lookup)).toBeUndefined()
+      expect(called).toBe(0)
+    })
   })
 })

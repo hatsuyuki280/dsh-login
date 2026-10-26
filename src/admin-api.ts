@@ -10,7 +10,7 @@
  */
 import type { ServerResponse, IncomingMessage } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { Session, SessionStore } from './session.ts'
+import type { Session, SessionStore, UserLookup } from './session.ts'
 import type { UserStore } from './users.ts'
 import { MAX_HOST_LENGTH, isBareAuthority } from './hosts.ts'
 import type { TrustedHosts } from './hosts.ts'
@@ -33,12 +33,19 @@ export interface AdminDeps {
   remoteWebUiSetting?: BooleanSetting
   /** Runtime applier of the compat flag to remote-web-ui (returns the outcome). */
   onRemoteWebUiApply?: (enabled: boolean) => Promise<CompatApplyResult>
+  /**
+   * Live account lookup (issue #8): an admin session must stop working when the
+   * account is disabled or removed, not when the cookie expires.
+   */
+  userLookup?: UserLookup
 }
 
 /** Resolve the live session from the request cookie, if any. */
-function requireSession(deps: AdminDeps, req: IncomingMessage): Session | undefined {
+async function requireSession(deps: AdminDeps, req: IncomingMessage): Promise<Session | undefined> {
   const token = extractSessionToken(req.headers.cookie)
-  return token === undefined ? undefined : deps.store.verify(token)
+  if (token === undefined) return undefined
+  if (deps.userLookup === undefined) return deps.store.verify(token)
+  return await deps.store.verifyActive(token, deps.userLookup)
 }
 
 /** Read and parse a JSON object body; null on oversized/malformed input. */
@@ -59,8 +66,8 @@ async function readJsonObject(req: IncomingMessage): Promise<Record<string, unkn
 }
 
 /** Admin gate: 401 without a session, 403 for non-admin sessions, else the session. */
-function requireAdmin(deps: AdminDeps, req: IncomingMessage, res: ServerResponse): Session | undefined {
-  const session = requireSession(deps, req)
+async function requireAdmin(deps: AdminDeps, req: IncomingMessage, res: ServerResponse): Promise<Session | undefined> {
+  const session = await requireSession(deps, req)
   if (session === undefined) {
     sendJson(res, 401, { error: 'authentication required' })
     return undefined
@@ -74,7 +81,7 @@ function requireAdmin(deps: AdminDeps, req: IncomingMessage, res: ServerResponse
 
 export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
   const me: WebRoute = { kind: 'exact', path: '/api/auth/me', handler: async (req, res) => {
-    const session = requireSession(deps, req)
+    const session = await requireSession(deps, req)
     if (session === undefined) return sendJson(res, 401, { error: 'authentication required' })
     return sendJson(res, 200, { username: session.user, isAdmin: session.isAdmin })
   } }
@@ -83,7 +90,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
   // actually use, so it does not probe (and get denied on) everything else.
   // Session-authenticated, not admin-gated — ordinary users need it most.
   const capabilitiesRoute: WebRoute = { kind: 'exact', path: '/api/auth/capabilities', handler: async (req, res) => {
-    const session = requireSession(deps, req)
+    const session = await requireSession(deps, req)
     if (session === undefined) return sendJson(res, 401, { error: 'authentication required' })
     return sendJson(res, 200, {
       username: session.user,
@@ -94,7 +101,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
 
   const usersRoute: WebRoute = { kind: 'exact', path: '/api/auth/admin/users', handler: async (req, res) => {
     if (req.method === 'GET') {
-      if (requireAdmin(deps, req, res) === undefined) return
+      if (await requireAdmin(deps, req, res) === undefined) return
       const records = await deps.users.list()
       const online = deps.store.onlineCounts()
       return sendJson(res, 200, {
@@ -107,7 +114,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
         })),
       })
     }
-    if (requireAdmin(deps, req, res) === undefined) return
+    if (await requireAdmin(deps, req, res) === undefined) return
     const body = await readJsonObject(req)
     if (body === null) return sendJson(res, 400, { error: 'bad request' })
     const { username, password, isAdmin } = body
@@ -127,7 +134,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
   } }
 
   const userPassword: WebRoute = { kind: 'exact', path: '/api/auth/admin/users/password', handler: async (req, res) => {
-    if (requireAdmin(deps, req, res) === undefined) return
+    if (await requireAdmin(deps, req, res) === undefined) return
     const body = await readJsonObject(req)
     if (body === null) return sendJson(res, 400, { error: 'bad request' })
     const { username, password } = body
@@ -143,12 +150,12 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
     }
     // A password change must force re-login with the new password: revoke
     // the user's live cookie sessions so old cookies stop working.
-    deps.store.revokeAllFor(username)
+    await deps.store.revokeAllForDurably(username)
     return sendJson(res, 200, { ok: true })
   } }
 
   const userRemove: WebRoute = { kind: 'exact', path: '/api/auth/admin/users/remove', handler: async (req, res) => {
-    if (requireAdmin(deps, req, res) === undefined) return
+    if (await requireAdmin(deps, req, res) === undefined) return
     const body = await readJsonObject(req)
     if (body === null || typeof body.username !== 'string') return sendJson(res, 400, { error: 'bad request' })
     const target = body.username
@@ -161,21 +168,21 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
     await deps.users.remove(target)
     // The removed user must lose access immediately: revoke their live
     // cookie sessions so a stale cookie cannot ride out the TTL.
-    deps.store.revokeAllFor(target)
+    await deps.store.revokeAllForDurably(target)
     return sendJson(res, 200, { ok: true })
   } }
 
   const hosts = deps.hosts
   const hostsRoute: WebRoute | undefined = hosts === undefined ? undefined : { kind: 'exact', path: '/api/auth/admin/hosts', handler: async (req, res) => {
     if (req.method === 'GET') {
-      if (requireAdmin(deps, req, res) === undefined) return
+      if (await requireAdmin(deps, req, res) === undefined) return
       return sendJson(res, 200, { hosts: hosts.list() })
     }
     if (req.method !== 'POST' && req.method !== 'DELETE') {
-      if (requireAdmin(deps, req, res) === undefined) return
+      if (await requireAdmin(deps, req, res) === undefined) return
       return sendJson(res, 405, { error: 'method not allowed' })
     }
-    if (requireAdmin(deps, req, res) === undefined) return
+    if (await requireAdmin(deps, req, res) === undefined) return
     const body = await readJsonObject(req)
     if (body === null || typeof body.host !== 'string' || body.host.length === 0) {
       return sendJson(res, 400, { error: 'bad request' })
@@ -199,7 +206,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
   } }
 
   const userDisable: WebRoute = { kind: 'exact', path: '/api/auth/admin/users/disable', handler: async (req, res) => {
-    if (requireAdmin(deps, req, res) === undefined) return
+    if (await requireAdmin(deps, req, res) === undefined) return
     const body = await readJsonObject(req)
     if (body === null || typeof body.username !== 'string' || typeof body.disabled !== 'boolean') {
       return sendJson(res, 400, { error: 'bad request' })
@@ -214,7 +221,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
     await deps.users.setDisabled(target, body.disabled)
     // Disabling must bite immediately: revoke the user's live cookie
     // sessions so a stale cookie cannot ride out the TTL.
-    if (body.disabled) deps.store.revokeAllFor(target)
+    if (body.disabled) await deps.store.revokeAllForDurably(target)
     return sendJson(res, 200, { ok: true })
   } }
 
@@ -222,7 +229,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
   // per request, so a toggle takes effect immediately (no restart needed).
   const setting = deps.defaultWorkspaceSetting
   const settingRoute: WebRoute | undefined = setting === undefined ? undefined : { kind: 'exact', path: '/api/auth/admin/settings/default-workspace', handler: async (req, res) => {
-    if (requireAdmin(deps, req, res) === undefined) return
+    if (await requireAdmin(deps, req, res) === undefined) return
     if (req.method === 'GET') return sendJson(res, 200, { enabled: setting.get() })
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' })
     const body = await readJsonObject(req)
@@ -239,7 +246,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
   // the flag actually reached remote-web-ui.
   const remoteSetting = deps.remoteWebUiSetting
   const remoteSettingRoute: WebRoute | undefined = remoteSetting === undefined ? undefined : { kind: 'exact', path: '/api/auth/admin/settings/remote-web-ui-compat', handler: async (req, res) => {
-    if (requireAdmin(deps, req, res) === undefined) return
+    if (await requireAdmin(deps, req, res) === undefined) return
     if (req.method === 'GET') return sendJson(res, 200, { enabled: remoteSetting.get() })
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' })
     const body = await readJsonObject(req)

@@ -55,7 +55,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { extractSessionToken } from './auth.ts'
-import type { SessionStore } from './session.ts'
+import type { SessionStore, UserLookup } from './session.ts'
 import type { OwnershipIndex } from './ownership.ts'
 import { USER_ALLOWED, isKnownWireMethod } from './api-filter.ts'
 import {
@@ -95,6 +95,12 @@ export interface ApiBridgeAuthDeps {
   ownedProvider?: OwnedSetProvider
   /** Fired (best-effort) on a non-admin user's first admitted request. */
   provisioner?: BridgeProvisioner
+  /**
+   * Live account lookup for session revalidation (issue #8): a session whose
+   * user was disabled or removed must stop working immediately, not when its
+   * cookie expires.
+   */
+  userLookup?: UserLookup
   /**
    * Fired (best-effort) when a denied endpoint is not part of the wire surface
    * this build knows about (`isKnownWireMethod`). A denial of a *known* method
@@ -173,7 +179,7 @@ export function createApiBridgeAuth(deps: ApiBridgeAuthDeps): ApiBridgeAuthListe
 
   return async (request, response, next) => {
     const token = extractSessionToken(request.headers.cookie)
-    const session = token === undefined ? undefined : store_verify(deps, token)
+    const session = token === undefined ? undefined : await store_verify(deps, token)
     if (session === undefined) {
       response.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' })
       response.end('unauthorized')
@@ -242,8 +248,9 @@ export function createApiBridgeAuth(deps: ApiBridgeAuthDeps): ApiBridgeAuthListe
 }
 
 /** Session verify with the wall's own expiry/cleanup behavior (kept tiny for tests). */
-function store_verify(deps: ApiBridgeAuthDeps, token: string) {
-  return deps.store.verify(token)
+async function store_verify(deps: ApiBridgeAuthDeps, token: string) {
+  if (deps.userLookup === undefined) return deps.store.verify(token)
+  return await deps.store.verifyActive(token, deps.userLookup)
 }
 
 async function resolveOwned(deps: ApiBridgeAuthDeps, username: string): Promise<ReadonlySet<string> | undefined> {

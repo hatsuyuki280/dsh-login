@@ -125,7 +125,7 @@ export function createLoginHandler(deps: LoginDeps): WebRoute['handler'] {
 export function createLogoutHandler(store: SessionStore): WebRoute['handler'] {
   return async (req: IncomingMessage, res: ServerResponse) => {
     const token = extractSessionToken(req.headers.cookie)
-    if (token !== undefined) store.revoke(token)
+    if (token !== undefined) await store.revokeDurably(token)
     res.setHeader('Set-Cookie', buildClearCookieHeader())
     res.writeHead(200)
     res.end()
@@ -140,7 +140,7 @@ export function createLogoutHandler(store: SessionStore): WebRoute['handler'] {
 export function createLogoutRedirectHandler(store: SessionStore): WebRoute['handler'] {
   return async (req: IncomingMessage, res: ServerResponse) => {
     const token = extractSessionToken(req.headers.cookie)
-    if (token !== undefined) store.revoke(token)
+    if (token !== undefined) await store.revokeDurably(token)
     res.setHeader('Set-Cookie', buildClearCookieHeader())
     res.writeHead(302, { Location: '/login' })
     res.end()

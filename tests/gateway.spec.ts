@@ -14,6 +14,9 @@ import { SessionStore } from '../src/session.ts'
 import { createGatewayHandler } from '../src/gateway.ts'
 import type { Config } from '../src/config.ts'
 
+/** Session-revalidation lookup: every account is present and enabled. */
+const activeUsers = async (): Promise<{ disabled?: boolean }> => ({})
+
 let root: string | undefined
 let context: Context | undefined
 
@@ -67,7 +70,7 @@ describe('gateway handler', () => {
   it('redirects unauthenticated requests to /login', { timeout: 60_000 }, async () => {
     const { ctx, port } = await bootServer()
     const store = new SessionStore(3600)
-    const handler = createGatewayHandler(ctx, config, store)
+    const handler = createGatewayHandler(ctx, config, store, activeUsers)
     ctx.effect(() => ctx.webServer.registerFallback(handler), 'gateway')
     const res = await request(port, '/')
     expect(res.status).toBe(302)
@@ -83,7 +86,7 @@ describe('gateway handler', () => {
     const store = new SessionStore(3600)
     const session = store.create('alice', true)
     const cfg = { ...config, distIndex }
-    const handler = createGatewayHandler(ctx, cfg, store)
+    const handler = createGatewayHandler(ctx, cfg, store, activeUsers)
     ctx.effect(() => ctx.webServer.registerFallback(handler), 'gateway')
     const res = await request(port, '/', {
       headers: { Cookie: `dsh_session=${session.token}` },
@@ -95,7 +98,7 @@ describe('gateway handler', () => {
   it('redirects to /login when cookie is invalid', { timeout: 60_000 }, async () => {
     const { ctx, port } = await bootServer()
     const store = new SessionStore(3600)
-    const handler = createGatewayHandler(ctx, config, store)
+    const handler = createGatewayHandler(ctx, config, store, activeUsers)
     ctx.effect(() => ctx.webServer.registerFallback(handler), 'gateway')
     const res = await request(port, '/', {
       headers: { Cookie: 'dsh_session=invalidtoken' },
@@ -117,7 +120,7 @@ describe('gateway handler', () => {
     const store = new SessionStore(3600)
     const session = store.create('alice', true)
     const cfg = { ...config, distIndex }
-    const handler = createGatewayHandler(ctx, cfg, store)
+    const handler = createGatewayHandler(ctx, cfg, store, activeUsers)
     ctx.effect(() => ctx.webServer.registerFallback(handler), 'gateway')
     const res = await request(port, '/some/spa/route', {
       headers: { Cookie: `dsh_session=${session.token}` },
@@ -141,7 +144,7 @@ describe('gateway handler', () => {
     const store = new SessionStore(3600)
     const session = store.create('alice', true)
     const cfg = { ...config, distIndex }
-    const handler = createGatewayHandler(ctx, cfg, store)
+    const handler = createGatewayHandler(ctx, cfg, store, activeUsers)
     ctx.effect(() => ctx.webServer.registerFallback(handler), 'gateway')
     ctx.on('webserver/index-inject', (table) => {
       table.push({ kind: 'script', placement: 'head', text: 'window.__ModuleLoader__ = { marker: true }' })
@@ -164,7 +167,7 @@ describe('gateway handler', () => {
     const store = new SessionStore(3600)
     const session = store.create('alice', true)
     const cfg = { ...config, distIndex }
-    const handler = createGatewayHandler(ctx, cfg, store)
+    const handler = createGatewayHandler(ctx, cfg, store, activeUsers)
     ctx.effect(() => ctx.webServer.registerFallback(handler), 'gateway')
     const res = await request(port, '/', {
       headers: { Cookie: `dsh_session=${session.token}` },
@@ -229,7 +232,7 @@ describe('gateway authorizeIndex: core browser-auth handshake (issue #3)', () =>
     await writeFile(distIndex, '<html><body>shell</body></html>')
     const store = new SessionStore(3600)
     const session = store.create('alice', true)
-    const handler = createGatewayHandler(ctx, { ...config, distIndex }, store)
+    const handler = createGatewayHandler(ctx, { ...config, distIndex }, store, activeUsers)
     ctx.effect(() => ctx.webServer.registerFallback(handler), 'gateway')
     provideFakeConnection(ctx, fake)
     return { port, token: session.token }
@@ -277,7 +280,7 @@ describe('gateway authorizeIndex: core browser-auth handshake (issue #3)', () =>
     await writeFile(distIndex, '<html><body>shell</body></html>')
     const store = new SessionStore(3600)
     const session = store.create('alice', true)
-    const handler = createGatewayHandler(ctx, { ...config, distIndex }, store)
+    const handler = createGatewayHandler(ctx, { ...config, distIndex }, store, activeUsers)
     ctx.effect(() => ctx.webServer.registerFallback(handler), 'gateway')
     ctx.provide('connection', { authorizeIndex: () => true })
     const res = await request(port, '/', { headers: { Cookie: `dsh_session=${session.token}` } })

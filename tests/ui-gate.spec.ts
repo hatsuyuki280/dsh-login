@@ -14,6 +14,9 @@ import { SessionStore } from '../src/session.ts'
 import { createGatewayHandler } from '../src/gateway.ts'
 import type { Config } from '../src/config.ts'
 
+/** Session-revalidation lookup: every account is present and enabled. */
+const activeUsers = async (): Promise<{ disabled?: boolean }> => ({})
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -268,7 +271,7 @@ async function bootGateway(indexHtml: string, config: Config): Promise<{ port: n
   const distIndex = join(dist, 'index.html')
   await writeFile(distIndex, indexHtml)
   const store = new SessionStore(3600)
-  const handler = createGatewayHandler(context, { ...config, distIndex }, store)
+  const handler = createGatewayHandler(context, { ...config, distIndex }, store, activeUsers)
   context.effect(() => context!.webServer.registerFallback(handler), 'gateway')
   return { port: context.webServer.port, store }
 }

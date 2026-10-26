@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
@@ -11,6 +11,12 @@ export interface Session {
   createdAt: number
   expiresAt: number
 }
+
+/**
+ * Resolve the live account record for a username, or undefined when the account
+ * no longer exists. Throwing is treated as "deny" by {@link SessionStore.verifyActive}.
+ */
+export type UserLookup = (username: string) => Promise<{ disabled?: boolean } | undefined>
 
 /** Debounce window for coalescing disk writes (ms), mirroring the sidecar files. */
 const SAVE_DEBOUNCE_MS = 200
@@ -31,6 +37,7 @@ export class SessionStore {
   private readonly store = new Map<string, Session>()
   private saveTimer: ReturnType<typeof setTimeout> | undefined
   private saving: Promise<void> = Promise.resolve()
+  private lastWriteOk = true
 
   constructor(
     private readonly ttlSeconds: number,
@@ -116,6 +123,64 @@ export class SessionStore {
     if (swept) this.scheduleSave()
   }
 
+  /**
+   * Revoke one token and wait until the removal is durable.
+   * @returns whether the write landed (false = memory-only revocation).
+   */
+  async revokeDurably(token: string): Promise<boolean> {
+    if (this.store.delete(token)) {
+      this.scheduleSave()
+      return await this.writeNow()
+    }
+    return true
+  }
+
+  /**
+   * Revoke every session of `user` and wait until the removal is durable.
+   * Admin-side disable/remove/password-reset use this so a crash inside the
+   * debounce window cannot resurrect a revoked cookie on the next boot.
+   * @returns how many sessions were removed.
+   */
+  async revokeAllForDurably(user: string): Promise<number> {
+    const removed = this.revokeAllFor(user)
+    if (removed > 0) await this.writeNow()
+    return removed
+  }
+
+  /**
+   * `verify()` plus a live account check.
+   *
+   * A session records the identity and role captured at login (`{user,
+   * isAdmin}`) and nothing re-checked the account afterwards, so disabling,
+   * removing, or demoting a user left their cookie working until it expired.
+   * This revalidates against the account store on the enforcement paths.
+   *
+   * Fail-closed: if the lookup throws, the request is refused rather than
+   * riding out the failure. A dropped session is also removed from disk.
+   *
+   * @param token - cookie token.
+   * @param lookup - resolves the live account record, or undefined when gone.
+   */
+  async verifyActive(
+    token: string,
+    lookup: (username: string) => Promise<{ disabled?: boolean } | undefined>,
+  ): Promise<Session | undefined> {
+    const session = this.verify(token)
+    if (session === undefined) return undefined
+    let record: { disabled?: boolean } | undefined
+    try {
+      record = await lookup(session.user)
+    } catch {
+      return undefined
+    }
+    if (record === undefined || record.disabled === true) {
+      this.revoke(session.token)
+      await this.writeNow()
+      return undefined
+    }
+    return session
+  }
+
   /** Force the pending save; resolves when the queued write settled (teardown). */
   async flush(): Promise<void> {
     if (this.saveTimer !== undefined) {
@@ -151,11 +216,30 @@ export class SessionStore {
     }, SAVE_DEBOUNCE_MS)
   }
 
-  private async writeNow(): Promise<void> {
-    if (this.filePath === undefined) return
-    try {
-      await mkdir(dirname(this.filePath), { recursive: true })
-      await writeFile(this.filePath, `${JSON.stringify([...this.store.values()])}\n`, { encoding: 'utf8', mode: 0o600 })
-    } catch { /* persistence is best-effort; memory stays authoritative */ }
+  /**
+   * Persist the live map with a temp-file + rename, so a crash mid-write can
+   * never leave a truncated `sessions.json` (which load() would read as
+   * "no sessions" and log everybody out). Writes are chained so two concurrent
+   * saves cannot interleave and drop a revocation.
+   *
+   * Returns whether the write landed: a caller that promised durable
+   * revocation (admin mutations) must be able to tell.
+   */
+  private writeNow(): Promise<boolean> {
+    const path = this.filePath
+    if (path === undefined) return Promise.resolve(true)
+    const snapshot = `${JSON.stringify([...this.store.values()])}\n`
+    this.saving = this.saving.then(async () => {
+      const temp = `${path}.tmp`
+      try {
+        await mkdir(dirname(path), { recursive: true })
+        await writeFile(temp, snapshot, { encoding: 'utf8', mode: 0o600 })
+        await rename(temp, path)
+        this.lastWriteOk = true
+      } catch {
+        this.lastWriteOk = false
+      }
+    })
+    return this.saving.then(() => this.lastWriteOk)
   }
 }
